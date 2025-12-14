@@ -2,7 +2,7 @@
 
 Fine-tuning VLMs to predict locations from street view images.
 
-## about
+## About
 
 Given a street view image, predict the latitude and longitude. We use GRPO (Group Relative Policy Optimization) with a geodesic reward function that starts coarse and tightens over training.
 
@@ -14,21 +14,21 @@ reward = exp(-distance_km / τ)
 
 The reward is just a monotonic transformation of distance—same information, different shape. Surprisingly, this works. You might expect RL to need richer signal (hierarchical labels, landmark detection, etc.), but the distance alone is enough when you schedule τ correctly.
 
-## approach
+## Approach
 
 1. **SFT warm-start** — teach the model to output coordinates in a consistent format
 2. **GRPO** — 16 rollouts per image, advantage centering, importance-weighted updates
 
 Training runs on [tinker](https://tinker.dev) with parallel rollouts (2048 concurrent samples per step) and streams data from HuggingFace via WebDataset.
 
-## install
+## Install
 
 ```bash
 uv sync
 export TINKER_API_KEY=...
 ```
 
-## run
+## Run
 
 ```bash
 # sft
@@ -38,11 +38,11 @@ uv run python -m geospot.sft model_name=Qwen/Qwen2.5-VL-3B-Instruct max_steps=10
 uv run python -m geospot.train max_steps=100
 ```
 
-## data
+## Data
 
 [sdan/geospot-vista9](https://huggingface.co/datasets/sdan/geospot-vista9) — 9M street view images with coordinates.
 
-## references
+## References
 
 - [Rainbolt](https://www.youtube.com/@georainbolt) — human-level GeoGuessr
 - [GRPO](https://arxiv.org/abs/2402.03300) — Group Relative Policy Optimization
