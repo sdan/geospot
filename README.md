@@ -6,7 +6,7 @@ Teaching VLMs to play GeoGuessr.
 
 GeoGuessr drops you in a random street view. You look around. You guess where you are.
 
-Humans get scary good at this. They read Cyrillic vs Latin scripts, spot Japanese kei trucks, notice Australian road signs have a specific font, know red soil + baobab = probably Africa. It's a weirdly rich visual reasoning task.
+Humans get scary good at this. [Rainbolt](https://www.youtube.com/@georainbolt) can identify a location in 0.1 seconds from a single frame—reading sun angles, soil color, road paint, bollard styles, Google car metadata. He's not memorizing; he's pattern matching on thousands of subtle geographic cues.
 
 Can a VLM learn the same thing? Turns out: yes, if you shape the rewards right.
 
