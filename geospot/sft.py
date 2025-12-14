@@ -1,26 +1,17 @@
 """
-Supervised fine-tuning for geospot VLM warm-start.
-
-Usage (WebDataset streaming from HF):
-    python -m geospot.sft \
-        hf_repo=sdan/geospot-vista9 \
-        log_path=./runs/sft-warmstart
-
-Then use the checkpoint for RL:
-    python -m geospot.train \
-        load_checkpoint_path=./runs/sft-warmstart/checkpoints/final \
-        log_path=./runs/rl-from-sft
+SFT warm-start for geospot VLM.
 """
 
-import asyncio
 import logging
 import os
 import random
+import time
 from datetime import datetime
 from typing import Any, Iterator
 
 import chz
 import tinker
+import torch
 import webdataset as wds
 from huggingface_hub import list_repo_files
 from PIL import Image
@@ -40,16 +31,95 @@ from geospot.rl.geo_env import DEFAULT_GEO_PROMPT
 logger = logging.getLogger(__name__)
 
 
-def format_ground_truth(lat: float, lon: float, city: str | None, country: str | None) -> str:
+def _create_rightshifted_model_input_and_leftshifted_targets(
+    chunks: list[tinker.ModelInputChunk],
+) -> tuple[tinker.ModelInput, list[int]]:
+    """Create input/target split for next-token prediction."""
+    assert len(chunks) >= 1
+    last_chunk = chunks[-1]
+    if not isinstance(last_chunk, tinker.types.EncodedTextChunk):
+        raise ValueError("Last chunk must be text")
+
+    total_length = sum(c.length for c in chunks)
+    if total_length < 2:
+        raise ValueError("need at least 2 tokens")
+
+    input_chunks: list[tinker.ModelInputChunk] = list(chunks[:-1])
+    if last_chunk.length > 1:
+        input_chunks.append(tinker.types.EncodedTextChunk(tokens=last_chunk.tokens[:-1]))
+
+    all_tokens: list[int] = []
+    for chunk in chunks:
+        if isinstance(chunk, tinker.types.EncodedTextChunk):
+            all_tokens.extend(chunk.tokens)
+        else:
+            all_tokens.extend([0] * chunk.length)
+    target_tokens = all_tokens[1:]
+
+    return tinker.ModelInput(chunks=input_chunks), target_tokens
+
+
+def datum_from_model_input_weights(
+    model_input: tinker.ModelInput,
+    weights: torch.Tensor,
+    max_length: int | None = None,
+) -> tinker.Datum | None:
+    """Create Datum with proper target_tokens and weights formatting."""
+    model_input_chunks = list(model_input.chunks)
+
+    # Truncate to max_length
+    if max_length is not None:
+        total_length = sum(chunk.length for chunk in model_input_chunks)
+        while total_length > max_length and model_input_chunks:
+            last = model_input_chunks[-1]
+            if isinstance(last, tinker.types.EncodedTextChunk):
+                overflow = total_length - max_length
+                if overflow < last.length:
+                    model_input_chunks[-1] = tinker.types.EncodedTextChunk(
+                        tokens=list(last.tokens[:-overflow])
+                    )
+                    total_length = max_length
+                else:
+                    model_input_chunks.pop()
+                    total_length -= last.length
+            else:
+                model_input_chunks.pop()
+                total_length -= last.length
+
+    # Remove trailing images
+    while model_input_chunks and isinstance(
+        model_input_chunks[-1], (tinker.types.ImageChunk, tinker.types.ImageAssetPointerChunk)
+    ):
+        model_input_chunks.pop()
+
+    if not model_input_chunks:
+        return None
+
+    input_model_input, target_tokens = _create_rightshifted_model_input_and_leftshifted_targets(
+        model_input_chunks
+    )
+    weights = weights[1 : len(target_tokens) + 1]
+
+    return tinker.Datum(
+        model_input=input_model_input,
+        loss_fn_inputs={
+            "weights": tinker.TensorData(
+                data=weights.tolist(),
+                dtype="float32",
+                shape=list(weights.shape),
+            ),
+            "target_tokens": tinker.TensorData(
+                data=target_tokens,
+                dtype="int64",
+                shape=[len(target_tokens)],
+            ),
+        },
+    )
+
+
+def format_ground_truth(lat: float, lon: float) -> str:
     """Format ground truth as the target response."""
-    lines = []
-    if city:
-        lines.append(f"City: {city}")
-    if country:
-        lines.append(f"Country: {country}")
-    lines.append(f"Latitude: {lat:.4f}")
-    lines.append(f"Longitude: {lon:.4f}")
-    return "\n".join(lines)
+    return f"Latitude: {lat:.6f}\nLongitude: {lon:.6f}"
 
 
 def get_shard_urls(hf_repo: str, max_shards: int | None = None, seed: int = 0, prefix: str = "shardheadings/") -> list[str]:
@@ -92,10 +162,15 @@ class WebDatasetIterator:
         self.shuffle_buffer = shuffle_buffer
 
     def __iter__(self) -> Iterator[tinker.Datum]:
+        def warn_and_continue(exn):
+            """Log warning and skip failed shards."""
+            logger.warning(f"Skipping shard due to error: {exn}")
+            return True
+
         dataset = (
-            wds.WebDataset(self.urls, shardshuffle=True)
+            wds.WebDataset(self.urls, shardshuffle=1000, handler=warn_and_continue)
             .shuffle(self.shuffle_buffer)
-            .decode("pil")
+            .decode("pil", handler=warn_and_continue)
         )
 
         for sample in dataset:
@@ -128,19 +203,15 @@ class WebDatasetIterator:
             json_data = sample.get("json", {})
             lat = float(json_data.get("lat", 0))
             lon = float(json_data.get("lng") or json_data.get("lon", 0))
-            # Handle different metadata formats
-            city = json_data.get("city")
-            country = json_data.get("country") or json_data.get("region")
 
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 return None
 
-            # Build conversation
             user_content = [
                 ImagePart(type="image", image=image),
                 TextPart(type="text", text=DEFAULT_GEO_PROMPT),
             ]
-            assistant_content = format_ground_truth(lat, lon, city, country)
+            assistant_content = format_ground_truth(lat, lon)
 
             messages = [
                 Message(role="user", content=user_content),
@@ -151,12 +222,9 @@ class WebDatasetIterator:
                 messages, train_on_what=self.train_on_what
             )
 
-            if self.max_length and model_input.length > self.max_length:
-                return None
-
-            return tinker.Datum(
-                model_input=model_input,
-                loss_fn_inputs={"weights": tinker.TensorData.from_numpy(weights.numpy())},
+            # Use helper to properly format datum with target_tokens
+            return datum_from_model_input_weights(
+                model_input, weights, max_length=self.max_length
             )
         except Exception as e:
             logger.debug(f"Failed to create datum: {e}")
@@ -178,8 +246,8 @@ class CLIConfig:
     max_steps: int = 1000
 
     # Training
-    batch_size: int = 16
-    learning_rate: float = 5e-4
+    batch_size: int = 128
+    learning_rate: float = 1e-4
     max_length: int = 4096
     shuffle_buffer: int = 1000
 
@@ -196,7 +264,7 @@ class CLIConfig:
     behavior_if_log_dir_exists: LogdirBehavior = "ask"
 
 
-async def main(cli: CLIConfig):
+def main(cli: CLIConfig):
     """SFT training loop with WebDataset streaming."""
     logging.basicConfig(
         level=logging.INFO,
@@ -216,15 +284,11 @@ async def main(cli: CLIConfig):
     logger.info(f"SFT warm-start: {cli.hf_repo} -> {log_path}")
     logger.info(f"Model: {cli.model_name}, batch_size={cli.batch_size}, max_steps={cli.max_steps}")
 
-    # Setup renderer
     tokenizer = get_tokenizer(cli.model_name)
     image_processor = get_image_processor(cli.model_name)
     renderer = get_renderer(cli.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
 
-    # Get shard URLs
     urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=cli.seed)
-
-    # Create streaming iterator
     data_iter = iter(WebDatasetIterator(
         urls=urls,
         renderer=renderer,
@@ -233,14 +297,14 @@ async def main(cli: CLIConfig):
         shuffle_buffer=cli.shuffle_buffer,
     ))
 
-    # Initialize client
     service_client = tinker.ServiceClient(base_url=cli.base_url)
-    training_client = await service_client.create_lora_training_client_async(
+    training_client = service_client.create_lora_training_client(
         cli.model_name, rank=cli.lora_rank
     )
 
-    # Training loop
     for step in range(cli.max_steps):
+        t_start = time.time()
+
         # Collect batch
         batch = []
         while len(batch) < cli.batch_size:
@@ -265,33 +329,26 @@ async def main(cli: CLIConfig):
         # LR schedule (linear decay)
         lr = cli.learning_rate * (1 - step / cli.max_steps)
 
-        fwd_bwd = await training_client.forward_backward_async(batch, loss_fn="cross_entropy")
-        optim = await training_client.optim_step_async(tinker.AdamParams(learning_rate=lr))
-
-        result = await fwd_bwd.result_async()
-        await optim.result_async()
+        fwd_bwd_future = training_client.forward_backward(batch, loss_fn="cross_entropy")
+        optim_future = training_client.optim_step(tinker.AdamParams(learning_rate=lr))
+        result = fwd_bwd_future.result()
+        optim_future.result()
 
         # Log
         num_tokens = sum(d.model_input.length for d in batch)
-        loss = result.loss if hasattr(result, 'loss') else 0
-        logger.info(f"Step {step}: {len(batch)} seqs, {num_tokens} tokens, loss={loss:.4f}, lr={lr:.2e}")
+        elapsed = time.time() - t_start
+        logger.info(f"Step {step}: tokens={num_tokens}, lr={lr:.2e}, time={elapsed:.1f}s")
 
         # Checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
-            name = f"step_{step:06d}"
-            await training_client.save_weights_async(name)
-            logger.info(f"Saved checkpoint: {name}")
+            training_client.save_state(name=f"step_{step:06d}").result()
+            logger.info(f"Saved checkpoint: step_{step:06d}")
 
     # Final checkpoint
-    await training_client.save_weights_async("final")
-    logger.info(f"SFT complete. Final checkpoint saved.")
-
-
-def cli_main():
-    """CLI entry point for geospot-sft command."""
-    cli_config = chz.entrypoint(CLIConfig)
-    asyncio.run(main(cli_config))
+    result = training_client.save_state(name="final").result()
+    logger.info("SFT complete!")
+    logger.info(f"Checkpoint: {result.path}")
 
 
 if __name__ == "__main__":
-    cli_main()
+    chz.nested_entrypoint(main)

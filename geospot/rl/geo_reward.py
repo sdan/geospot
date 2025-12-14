@@ -144,10 +144,10 @@ class GeoRewardConfig:
     """Config for geo reward. Default tau=25km gives city-level sensitivity."""
 
     coord_tau: float = 25.0
-    coord_weight: float = 0.7
-    city_weight: float = 0.1
-    region_weight: float = 0.1
-    country_weight: float = 0.1
+    coord_weight: float = 1.0
+    city_weight: float = 0.0
+    region_weight: float = 0.0
+    country_weight: float = 0.0
     format_penalty: float = 0.1
 
 

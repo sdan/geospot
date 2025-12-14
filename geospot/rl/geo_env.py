@@ -38,16 +38,10 @@ from geospot.completers import StopCondition
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_GEO_PROMPT = """Look at this image and determine its geographic location.
+DEFAULT_GEO_PROMPT = """Where is this? Reply with coordinates.
 
-Provide your answer in the following format:
-City: <city name>
-Region: <state/province/region name>
-Country: <country name>
-Latitude: <decimal degrees>
-Longitude: <decimal degrees>
-
-Be as specific as possible. If uncertain, provide your best estimate."""
+Latitude: <degrees>
+Longitude: <degrees>"""
 
 
 @dataclass

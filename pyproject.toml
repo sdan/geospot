@@ -43,10 +43,6 @@ wandb = [
     "wandb>=0.16.0",
 ]
 
-[project.scripts]
-geospot-sft = "geospot.sft:cli_main"
-geospot-train = "geospot.train:main"
-
 [project.urls]
 Homepage = "https://github.com/sdan/geospot-vlm"
 Repository = "https://github.com/sdan/geospot-vlm"

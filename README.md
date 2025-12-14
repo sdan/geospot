@@ -1,98 +1,51 @@
 # geospot-vlm
 
-Train VLMs to predict geographic coordinates from images.
+Fine-tune VLMs for geolocation prediction using GRPO.
 
-## What it does
+## About
 
-Given a street-level image, the model outputs:
+To solve AGI, we must first solve GeoGuessr.
+
+GeoGuessr drops you in a random street view and you guess where you are. Humans learn to read signs, architecture, road markings, vegetation, sun position. Can a VLM learn the same?
+
+We found VLMs can learn geolocation through **progressive geodesic tightening** — shape rewards to learn country → region → city, blended with coordinate distance on a schedule. The model picks up on geographic cues and gets surprisingly good.
+
+Built on top of tinker for distributed LoRA training. SFT warm-start, then GRPO.
+
+## Installation
+
+```bash
+uv sync
+export TINKER_API_KEY=...
+```
+
+## Usage
+
+```bash
+# SFT warm-start
+uv run python -m geospot.sft model_name=Qwen/Qwen3-VL-30B-A3B-Instruct max_steps=1000
+
+# GRPO
+uv run python -m geospot.train load_checkpoint_path=tinker://<id>/weights/final max_steps=100
+```
+
+Data: `sdan/geospot-vista9` (default)
+
+## Output Format
+
 ```
 City: San Francisco
-Region: California
 Country: United States
 Latitude: 37.7749
 Longitude: -122.4194
 ```
 
-Reward = exp(-distance_km / 25). Closer predictions get higher reward.
+## Reward
 
-## Quick start
-
-```bash
-cd geospot-vlm
-uv sync
-export TINKER_API_KEY=sk-...
-
-# SFT warm-start (optional but recommended)
-uv run geospot-sft \
-    hf_repo=osv5m/osv5m \
-    model_name=Qwen/Qwen3-VL-30B-A3B-Instruct \
-    max_samples=1000 \
-    log_path=./runs/sft
-
-# RL training
-uv run geospot-train \
-    hf_repo=osv5m/osv5m \
-    model_name=Qwen/Qwen3-VL-30B-A3B-Instruct \
-    log_path=./runs/rl
-```
-
-## Structure
+Hierarchical reward combining coordinate distance with geographic hierarchy:
 
 ```
-geospot/
-├── rl/
-│   ├── types.py        # Env, EnvGroupBuilder, RLDataset
-│   ├── geo_env.py      # GeoEnv: image -> prediction -> reward
-│   ├── geo_reward.py   # haversine_km, parse_geo_response
-│   └── geo_dataset.py  # GeoDatasetBuilder for HuggingFace
-├── renderers.py        # Qwen3VLRenderer
-├── completers.py       # TinkerTokenCompleter
-├── sft.py              # SFT warm-start
-└── train.py            # RL training
+reward = w_coord * exp(-distance_km / τ) + w_country * country_match + w_region * region_match + w_city * city_match
 ```
 
-## Key concepts
-
-**GeoEnv**: Single-turn environment. Shows image, expects location prediction.
-
-**Reward**: `exp(-distance_km / tau)` where default tau=25km.
-- <1km: 96% reward
-- 25km: 37% reward
-- 100km: 2% reward
-
-**GRPO**: Multiple rollouts per image (group_size=4), center rewards across group.
-
-## Config
-
-```bash
-# SFT
-uv run geospot-sft \
-    hf_repo=osv5m/osv5m \
-    model_name=Qwen/Qwen3-VL-30B-A3B-Instruct \
-    batch_size=8 \
-    learning_rate=5e-4 \
-    num_epochs=1 \
-    max_samples=10000
-
-# RL
-uv run geospot-train \
-    hf_repo=osv5m/osv5m \
-    model_name=Qwen/Qwen3-VL-30B-A3B-Instruct \
-    batch_size=16 \
-    group_size=4 \
-    learning_rate=5e-4 \
-    lora_rank=32 \
-    coord_tau=25.0
-```
-
-## Data format
-
-HuggingFace dataset with columns:
-- `image`: PIL Image
-- `latitude` / `lat`: float
-- `longitude` / `lon`: float
-- `city`, `region`, `country`: str (optional)
-
-## License
-
-Apache 2.0
+Default: τ=25km, coord_weight=0.7, hierarchy_weight=0.3
