@@ -12,6 +12,8 @@ The key idea: a model can't learn city-level precision from scratch—the gradie
 reward = exp(-distance_km / τ)
 ```
 
+The reward is just a monotonic transformation of distance—same information, different shape. Surprisingly, this works. You might expect RL to need richer signal (hierarchical labels, landmark detection, etc.), but the distance alone is enough when you schedule τ correctly.
+
 ## approach
 
 1. **SFT warm-start** — teach the model to output coordinates in a consistent format
