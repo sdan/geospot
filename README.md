@@ -1,38 +1,75 @@
 # geospot-vlm
 
-Fine-tune VLMs for geolocation prediction using GRPO.
+Teaching VLMs to play GeoGuessr.
 
-## About
+## why
 
-To solve AGI, we must first solve GeoGuessr.
+GeoGuessr drops you in a random street view. You look around. You guess where you are.
 
-GeoGuessr drops you in a random street view and you guess where you are. Humans learn to read signs, architecture, road markings, vegetation, sun position. Can a VLM learn the same?
+Humans get scary good at this. They learn to read Cyrillic vs Latin scripts, spot Japanese kei trucks, notice that Australian road signs have a specific font, know that red soil + baobab trees = probably Africa. It's a weirdly rich visual reasoning task.
 
-We found VLMs can learn geolocation through **progressive geodesic tightening** — shape rewards to learn country → region → city, blended with coordinate distance on a schedule. The model picks up on geographic cues and gets surprisingly good.
+Can a VLM learn the same thing? Turns out: yes, if you shape the rewards right.
 
-Built on top of tinker for distributed LoRA training. SFT warm-start, then GRPO.
+## the trick
 
-## Installation
+Naive approach: reward = how close was the guess? Problem: the model has no gradient signal when it's 5000km off. It just flails.
+
+What works: **hierarchical geodesic tightening**. Start coarse, end precise.
+
+```
+reward = coord_weight * exp(-distance_km / τ) + hierarchy_weight * (country + region + city)
+```
+
+Early training: τ is large, hierarchy matters more. Model learns "this looks European." Later: τ shrinks, coordinates matter more. Model learns "this is specifically Barcelona."
+
+## how it actually works
+
+We use [tinker](https://tinker.dev) for distributed LoRA training. The architecture:
+
+**Parallel rollouts.** The naive approach—sample one completion, compute reward, repeat—is painfully slow. Instead, we fire off all sample requests in parallel across the batch before collecting any results. For a batch of 128 environments with group size 16, that's 2048 concurrent inference requests. Tinker handles the scheduling.
+
+```python
+# Fire ALL requests (non-blocking)
+for ob, env in env_obs:
+    for _ in range(group_size):
+        future = sampling_client.sample(prompt=ob, ...)
+        all_futures.append(future)
+
+# Collect results after
+for future in all_futures:
+    result = future.result()
+```
+
+**GRPO with importance sampling.** We use Group Relative Policy Optimization—sample multiple completions per prompt, center the rewards, use the advantage as weights. The loss function is importance-sampled so we can reuse the same completions across gradient steps.
+
+**Streaming WebDataset.** 9 million images is too big to shuffle in memory. We stream shards from HuggingFace, shuffle within a buffer, decode on the fly. Handles network hiccups gracefully.
+
+**Haversine reward.** Great-circle distance on a sphere, not Euclidean distance. Matters when you're comparing predictions across the globe.
+
+## install
 
 ```bash
 uv sync
 export TINKER_API_KEY=...
 ```
 
-## Usage
+## run
 
 ```bash
-# SFT warm-start
-uv run python -m geospot.sft model_name=Qwen/Qwen3-VL-30B-A3B-Instruct max_steps=1000
+# sft warm-start (optional but helps convergence)
+uv run python -m geospot.sft model_name=Qwen/Qwen2.5-VL-3B-Instruct max_steps=1000
 
-# GRPO
-uv run python -m geospot.train load_checkpoint_path=tinker://<id>/weights/final max_steps=100
+# grpo
+uv run python -m geospot.train max_steps=100
 ```
 
-Data: `sdan/geospot-vista9` (default)
+Key hyperparameters:
+- `batch_size=128` — environments per step
+- `group_size=16` — completions per environment (for GRPO)
+- `coord_tau=25.0` — distance scale in km (smaller = sharper gradient)
+- `coord_weight=0.7` — balance between coordinate distance and hierarchy matching
 
-## Output Format
-
+Output format:
 ```
 City: San Francisco
 Country: United States
@@ -40,12 +77,6 @@ Latitude: 37.7749
 Longitude: -122.4194
 ```
 
-## Reward
+## data
 
-Hierarchical reward combining coordinate distance with geographic hierarchy:
-
-```
-reward = w_coord * exp(-distance_km / τ) + w_country * country_match + w_region * region_match + w_city * city_match
-```
-
-Default: τ=25km, coord_weight=0.7, hierarchy_weight=0.3
+`sdan/geospot-vista9` — street view images with coordinates. WebDataset format, streamed from HuggingFace.
