@@ -6,7 +6,7 @@ Teaching VLMs to play GeoGuessr.
 
 GeoGuessr drops you in a random street view. You look around. You guess where you are.
 
-Humans get scary good at this. [Rainbolt](https://www.youtube.com/@georainbolt) can identify a location in 0.1 seconds from a single frame—reading sun angles, soil color, road paint, bollard styles, Google car metadata. He's not memorizing; he's pattern matching on thousands of subtle geographic cues.
+Humans get scary good at this. [Rainbolt](https://www.youtube.com/@georainbolt) identifies locations in 0.1 seconds—sun angles, soil color, road paint, bollard styles, Google car metadata. Thousands of subtle cues that compress into instant recognition.
 
 Can a VLM learn the same thing? Turns out: yes, if you shape the rewards right.
 
