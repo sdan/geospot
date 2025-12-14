@@ -1,63 +1,23 @@
 # geospot-vlm
 
-Teaching VLMs to play GeoGuessr.
+Fine-tuning VLMs to predict locations from street view images.
 
-## why
+## about
 
-GeoGuessr drops you in a random street view. You look around. You guess where you are.
+Given a street view image, predict the latitude and longitude. We use GRPO (Group Relative Policy Optimization) with a geodesic reward function that starts coarse and tightens over training.
 
-Humans get scary good at this. [Rainbolt](https://www.youtube.com/@georainbolt) identifies locations in 0.1 seconds—sun angles, soil color, road paint, bollard styles, Google car metadata. Thousands of subtle cues that compress into instant recognition.
-
-Can a VLM learn the same thing? Turns out: yes, if you shape the rewards right.
-
-## the trick
-
-Naive approach: reward = how close was the guess? Problem: model gets no gradient signal when it's 5000km off. It just flails.
-
-What works: **progressive geodesic tightening**.
+The key idea: a model can't learn city-level precision from scratch—the gradient signal is too sparse when predictions are thousands of kilometers off. But if you start with a large distance scale (τ=2000km) and gradually decrease it (→25km), the model learns continent → country → region → city.
 
 ```
 reward = exp(-distance_km / τ)
 ```
 
-The insight: you can't learn city-level accuracy from scratch. But you can learn continent → country → region → city by starting with large τ and shrinking it.
+## approach
 
-- τ = 2000km — model learns hemispheres, continents
-- τ = 500km — model learns countries, major regions
-- τ = 100km — model learns states, provinces
-- τ = 25km — model learns cities
+1. **SFT warm-start** — teach the model to output coordinates in a consistent format
+2. **GRPO** — 16 rollouts per image, advantage centering, importance-weighted updates
 
-Start coarse, end precise. The model picks up on signs, architecture, vegetation, road markings, sun position—same cues humans use.
-
-## two-stage pipeline
-
-**Stage 1: SFT warm-start.** Teach the model the output format. Without this, GRPO wastes steps learning to output valid coordinates instead of learning geography.
-
-**Stage 2: GRPO.** Now the model knows *how* to answer. RL teaches it to answer *correctly*. Group sampling (16 rollouts per image), advantage centering, importance-weighted gradients.
-
-Format compliance first, then precision.
-
-## how it works
-
-Built on [tinker](https://tinker.dev) for distributed LoRA training.
-
-**Parallel rollouts.** Fire all sample requests before collecting any results. For batch=128, group=16, that's 2048 concurrent inference requests. ~2 min/step.
-
-```python
-# Fire ALL requests (non-blocking)
-for ob, env in env_obs:
-    for _ in range(group_size):
-        future = sampling_client.sample(prompt=ob, ...)
-        all_futures.append(future)
-
-# Collect after
-for future in all_futures:
-    result = future.result()
-```
-
-**Streaming WebDataset.** 9M images streamed from HuggingFace. Shard shuffle + sample shuffle. Handles multi-heading panoramas (4 views per location).
-
-**Haversine distance.** Great-circle on a sphere, not Euclidean. Matters at global scale.
+Training runs on [tinker](https://tinker.dev) with parallel rollouts (2048 concurrent samples per step) and streams data from HuggingFace via WebDataset.
 
 ## install
 
@@ -69,18 +29,18 @@ export TINKER_API_KEY=...
 ## run
 
 ```bash
-# stage 1: sft
+# sft
 uv run python -m geospot.sft model_name=Qwen/Qwen2.5-VL-3B-Instruct max_steps=1000
 
-# stage 2: grpo
+# grpo
 uv run python -m geospot.train max_steps=100
 ```
 
-Key params:
-- `batch_size=128` — environments per step
-- `group_size=16` — rollouts per environment
-- `coord_tau=25.0` — distance scale (km)
-
 ## data
 
-`sdan/geospot-vista9` — 9M street view images with coordinates.
+[sdan/geospot-vista9](https://huggingface.co/datasets/sdan/geospot-vista9) — 9M street view images with coordinates.
+
+## references
+
+- [Rainbolt](https://www.youtube.com/@georainbolt) — human-level GeoGuessr
+- [GRPO](https://arxiv.org/abs/2402.03300) — Group Relative Policy Optimization
