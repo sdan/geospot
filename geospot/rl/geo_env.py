@@ -1,5 +1,7 @@
 """
 Geolocation RL environment for VLM training.
+
+Single-turn: image -> location prediction -> reward.
 """
 
 import logging
@@ -26,13 +28,7 @@ from geospot.rl.geo_reward import (
     parse_geo_response,
     distance_bucket,
 )
-from geospot.renderers import (
-    ImagePart,
-    Message,
-    Renderer,
-    TextPart,
-    ensure_text,
-)
+from geospot.renderers import ImagePart, Message, Renderer, TextPart, ensure_text
 from geospot.completers import StopCondition
 
 logger = logging.getLogger(__name__)
@@ -48,12 +44,12 @@ Longitude: <degrees>"""
 class GeoEnvConfig:
     prompt_template: str = DEFAULT_GEO_PROMPT
     reward_config: GeoRewardConfig | None = None
-    max_image_size: int = 480
-    format_coef: float = 0.1
+    max_image_size: int = 512
+    format_coef: float = 0.1  # Penalty for format errors
 
 
 class GeoEnv(Env):
-    """Single-turn environment: image -> location prediction -> reward."""
+    """Single-turn geo environment: image -> prediction -> reward."""
 
     def __init__(
         self,
@@ -107,7 +103,7 @@ class GeoEnv(Env):
             config=self.config.reward_config,
         )
 
-        # Format penalty (like ProblemEnv)
+        # Format penalty: -0.1 if unparseable, else reward
         format_valid = float(parse_success and reward_result.format_valid)
         total_reward = self.config.format_coef * (format_valid - 1) + reward_result.total_reward
 
@@ -115,9 +111,6 @@ class GeoEnv(Env):
         metrics["format"] = format_valid
         if reward_result.distance_km is not None:
             metrics["distance_bucket"] = distance_bucket(reward_result.distance_km)
-
-        if reward_result.distance_km is not None:
-            logger.debug(f"GeoEnv: distance={reward_result.distance_km:.1f}km, reward={total_reward:.3f}")
 
         return StepResult(
             reward=total_reward,
@@ -142,6 +135,7 @@ class GeoGroupBuilder(EnvGroupBuilder):
     async def compute_group_rewards(
         self, trajectory_group: list[Trajectory], env_group: Sequence[Env]
     ) -> list[tuple[float, Metrics]]:
+        # Single-step task: no group-level rewards needed
         return [(0.0, {}) for _ in trajectory_group]
 
     def logging_tags(self) -> list[str]:

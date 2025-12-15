@@ -1,8 +1,12 @@
 """
-Geodesic reward computation for geolocation.
+Geodesic reward computation for geolocation RL.
+
+Single-step reward with:
+- Distance-based reward (exp(-d/tau) or geoguessr score)
+- Geocell hierarchy via geohash prefix matching
+- Format penalty for unparseable responses
 """
 
-import json
 import math
 import re
 from dataclasses import dataclass
@@ -12,20 +16,16 @@ EARTH_RADIUS_KM = 6371.0
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Great-circle distance between two points in kilometers."""
+    """Great-circle distance in km."""
     lat1_r, lon1_r = math.radians(lat1), math.radians(lon1)
     lat2_r, lon2_r = math.radians(lat2), math.radians(lon2)
-
-    dlat = lat2_r - lat1_r
-    dlon = lon2_r - lon1_r
-
+    dlat, dlon = lat2_r - lat1_r, lon2_r - lon1_r
     a = math.sin(dlat / 2) ** 2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon / 2) ** 2
-    c = 2 * math.asin(math.sqrt(a))
-    return EARTH_RADIUS_KM * c
+    return EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
 
 
 class GeoLocation(NamedTuple):
-    """A geographic location with optional hierarchical info."""
+    """Geographic location with optional hierarchy."""
 
     lat: float
     lon: float
@@ -35,146 +35,156 @@ class GeoLocation(NamedTuple):
 
 
 class ParsedGeoResponse(NamedTuple):
-    """Result of parsing a model's geo prediction."""
+    """Result of parsing model output."""
 
     location: GeoLocation | None
     format_valid: bool
     raw_text: str
 
 
+# -----------------------------------------------------------------------------
+# Response parsing (strict format from SFT)
+# -----------------------------------------------------------------------------
+
+
 def parse_geo_response(response: str) -> ParsedGeoResponse:
-    """Parse model response to extract location prediction."""
+    """
+    Parse model response. Accepts:
+
+        Latitude: <degrees>
+        Longitude: <degrees>
+
+    Or bare coordinates:
+
+        <lat>, <lon>
+
+    Strips <think> blocks first.
+    """
     response = response.strip()
+    response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
 
-    # Try structured format
-    loc = _parse_structured_format(response)
-    if loc:
-        return ParsedGeoResponse(location=loc, format_valid=True, raw_text=response)
+    # Try structured format first
+    lat_match = re.search(r"Latitude:\s*(-?\d+\.?\d*)", response)
+    lon_match = re.search(r"Longitude:\s*(-?\d+\.?\d*)", response)
 
-    # Try coordinate-only
-    loc = _parse_coordinate_format(response)
-    if loc:
-        return ParsedGeoResponse(location=loc, format_valid=True, raw_text=response)
+    if lat_match and lon_match:
+        try:
+            lat, lon = float(lat_match.group(1)), float(lon_match.group(1))
+            if _valid_coords(lat, lon):
+                return ParsedGeoResponse(GeoLocation(lat, lon), True, response)
+        except ValueError:
+            pass
 
-    # Try JSON
-    loc = _parse_json_format(response)
-    if loc:
-        return ParsedGeoResponse(location=loc, format_valid=True, raw_text=response)
+    # Try bare coords: "lat, lon"
+    bare_match = re.search(r"(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)", response)
+    if bare_match:
+        try:
+            lat, lon = float(bare_match.group(1)), float(bare_match.group(2))
+            if _valid_coords(lat, lon):
+                return ParsedGeoResponse(GeoLocation(lat, lon), True, response)
+        except ValueError:
+            pass
 
-    return ParsedGeoResponse(location=None, format_valid=False, raw_text=response)
-
-
-def _parse_structured_format(text: str) -> GeoLocation | None:
-    lat = lon = None
-    city = region = country = None
-
-    patterns = {
-        "lat": r"(?:latitude|lat)[:\s]+(-?\d+\.?\d*)",
-        "lon": r"(?:longitude|lon|lng)[:\s]+(-?\d+\.?\d*)",
-        "city": r"city[:\s]+([^\n]+)",
-        "region": r"(?:region|state|province)[:\s]+([^\n]+)",
-        "country": r"country[:\s]+([^\n]+)",
-    }
-
-    text_lower = text.lower()
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text_lower, re.IGNORECASE)
-        if match:
-            value = match.group(1).strip()
-            if key == "lat":
-                lat = _safe_float(value)
-            elif key == "lon":
-                lon = _safe_float(value)
-            elif key == "city":
-                city = value.title()
-            elif key == "region":
-                region = value.title()
-            elif key == "country":
-                country = value.title()
-
-    if lat is not None and lon is not None and _valid_coords(lat, lon):
-        return GeoLocation(lat=lat, lon=lon, city=city, region=region, country=country)
-    return None
-
-
-def _parse_coordinate_format(text: str) -> GeoLocation | None:
-    pattern = r"(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)"
-    match = re.search(pattern, text)
-    if match:
-        lat = _safe_float(match.group(1))
-        lon = _safe_float(match.group(2))
-        if lat is not None and lon is not None and _valid_coords(lat, lon):
-            return GeoLocation(lat=lat, lon=lon)
-    return None
-
-
-def _parse_json_format(text: str) -> GeoLocation | None:
-    try:
-        json_match = re.search(r"\{[^}]+\}", text)
-        if json_match:
-            data = json.loads(json_match.group())
-            lat = data.get("lat") or data.get("latitude")
-            lon = data.get("lon") or data.get("lng") or data.get("longitude")
-            if lat is not None and lon is not None and _valid_coords(lat, lon):
-                return GeoLocation(
-                    lat=float(lat),
-                    lon=float(lon),
-                    city=data.get("city"),
-                    region=data.get("region") or data.get("state"),
-                    country=data.get("country"),
-                )
-    except (json.JSONDecodeError, ValueError, TypeError):
-        pass
-    return None
-
-
-def _safe_float(s: str) -> float | None:
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return None
+    return ParsedGeoResponse(None, False, response)
 
 
 def _valid_coords(lat: float, lon: float) -> bool:
     return -90 <= lat <= 90 and -180 <= lon <= 180
 
 
+# -----------------------------------------------------------------------------
+# Geohash (for geocell hierarchy)
+# -----------------------------------------------------------------------------
+
+_GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
+
+
+def geohash_encode(lat: float, lon: float, precision: int = 6) -> str:
+    """Encode (lat, lon) into geohash. Each char ~= one level of hierarchy."""
+    if precision <= 0 or not _valid_coords(lat, lon):
+        return ""
+    lat_min, lat_max = -90.0, 90.0
+    lon_min, lon_max = -180.0, 180.0
+    chars: list[str] = []
+    bit, ch, even = 0, 0, True
+    while len(chars) < precision:
+        if even:
+            mid = (lon_min + lon_max) / 2
+            if lon > mid:
+                ch |= 1 << (4 - bit)
+                lon_min = mid
+            else:
+                lon_max = mid
+        else:
+            mid = (lat_min + lat_max) / 2
+            if lat > mid:
+                ch |= 1 << (4 - bit)
+                lat_min = mid
+            else:
+                lat_max = mid
+        even = not even
+        if bit < 4:
+            bit += 1
+        else:
+            chars.append(_GEOHASH_BASE32[ch])
+            bit, ch = 0, 0
+    return "".join(chars)
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    for i in range(min(len(a), len(b))):
+        if a[i] != b[i]:
+            return i
+    return min(len(a), len(b))
+
+
+# -----------------------------------------------------------------------------
+# Reward computation
+# -----------------------------------------------------------------------------
+
+
 @dataclass
 class GeoRewardConfig:
-    """Config for geo reward. Default tau=25km gives city-level sensitivity."""
+    """
+    Reward configuration.
+
+    - coord_tau: decay constant for exp(-d/tau). Start high (coarse), anneal low (fine).
+    - coord_reward_kind: "exp" for exp(-d/tau), "geoguessr" for geoguessr scoring / 5000.
+    - geohash_precision: length of geohash for geocell reward (0 to disable).
+    - geocell_weight: weight for geocell prefix match reward.
+    - format_penalty: penalty when response can't be parsed.
+    """
 
     coord_tau: float = 25.0
-    coord_weight: float = 1.0
-    city_weight: float = 0.0
-    region_weight: float = 0.0
-    country_weight: float = 0.0
+    coord_reward_kind: str = "exp"  # "exp" or "geoguessr"
+    coord_weight: float = 0.7
+    geocell_weight: float = 0.3
+    geohash_precision: int = 5
     format_penalty: float = 0.1
 
 
 @dataclass
 class GeoRewardResult:
-    """Result of computing geo reward."""
+    """Reward breakdown for logging."""
 
     total_reward: float
     coord_reward: float
-    city_reward: float
-    region_reward: float
-    country_reward: float
+    geocell_reward: float
     distance_km: float | None
     format_valid: bool
+    geohash_prefix_len: int = 0
 
     def to_metrics(self) -> dict[str, float]:
-        metrics = {
+        m = {
             "reward/total": self.total_reward,
             "reward/coord": self.coord_reward,
-            "reward/city": self.city_reward,
-            "reward/region": self.region_reward,
-            "reward/country": self.country_reward,
+            "reward/geocell": self.geocell_reward,
             "format_valid": float(self.format_valid),
+            "geohash_prefix_len": float(self.geohash_prefix_len),
         }
         if self.distance_km is not None:
-            metrics["distance_km"] = self.distance_km
-        return metrics
+            m["distance_km"] = self.distance_km
+        return m
 
 
 def compute_geo_reward(
@@ -182,64 +192,68 @@ def compute_geo_reward(
     ground_truth: GeoLocation,
     config: GeoRewardConfig | None = None,
 ) -> GeoRewardResult:
-    """Compute hierarchical geo reward. reward = exp(-distance / tau)."""
-    if config is None:
-        config = GeoRewardConfig()
+    """
+    Compute single-step geo reward.
 
-    # Normalize weights
-    total_weight = config.coord_weight + config.city_weight + config.region_weight + config.country_weight
-    w_coord = config.coord_weight / total_weight
-    w_city = config.city_weight / total_weight
-    w_region = config.region_weight / total_weight
-    w_country = config.country_weight / total_weight
+    reward = w_coord * coord_reward + w_geocell * geocell_reward
+    """
+    cfg = config or GeoRewardConfig()
 
+    # Invalid parse -> format penalty
     if prediction.location is None:
         return GeoRewardResult(
-            total_reward=-config.format_penalty,
+            total_reward=-cfg.format_penalty,
             coord_reward=0.0,
-            city_reward=0.0,
-            region_reward=0.0,
-            country_reward=0.0,
+            geocell_reward=0.0,
             distance_km=None,
             format_valid=False,
         )
 
     pred, gt = prediction.location, ground_truth
 
+    # Distance reward
     distance_km = haversine_km(pred.lat, pred.lon, gt.lat, gt.lon)
-    coord_reward = math.exp(-distance_km / config.coord_tau)
+    if cfg.coord_reward_kind == "exp":
+        coord_reward = math.exp(-distance_km / cfg.coord_tau)
+    elif cfg.coord_reward_kind == "geoguessr":
+        coord_reward = geoguessr_score(distance_km) / 5000.0
+    else:
+        raise ValueError(f"Unknown coord_reward_kind: {cfg.coord_reward_kind}")
 
-    city_reward = _text_match(pred.city, gt.city)
-    region_reward = _text_match(pred.region, gt.region)
-    country_reward = _text_match(pred.country, gt.country)
+    # Geocell reward (prefix match)
+    geocell_reward = 0.0
+    geohash_prefix_len = 0
+    if cfg.geocell_weight > 0 and cfg.geohash_precision > 0:
+        pred_hash = geohash_encode(pred.lat, pred.lon, cfg.geohash_precision)
+        gt_hash = geohash_encode(gt.lat, gt.lon, cfg.geohash_precision)
+        geohash_prefix_len = _common_prefix_len(pred_hash, gt_hash)
+        geocell_reward = geohash_prefix_len / cfg.geohash_precision
 
-    total_reward = (
-        w_coord * coord_reward
-        + w_city * city_reward
-        + w_region * region_reward
-        + w_country * country_reward
-    )
+    # Weighted sum
+    w_total = cfg.coord_weight + cfg.geocell_weight
+    if w_total <= 0:
+        w_total = 1.0
+    total_reward = (cfg.coord_weight * coord_reward + cfg.geocell_weight * geocell_reward) / w_total
 
     return GeoRewardResult(
         total_reward=total_reward,
         coord_reward=coord_reward,
-        city_reward=city_reward,
-        region_reward=region_reward,
-        country_reward=country_reward,
+        geocell_reward=geocell_reward,
         distance_km=distance_km,
         format_valid=True,
+        geohash_prefix_len=geohash_prefix_len,
     )
 
 
-def _text_match(pred: str | None, gt: str | None) -> float:
-    """1.0 for exact match (case-insensitive), 0.0 otherwise."""
-    if gt is None or pred is None:
-        return 0.0
-    return 1.0 if pred.lower().strip() == gt.lower().strip() else 0.0
+def geoguessr_score(distance_km: float) -> int:
+    """GeoGuessr-style score (0-5000). Non-saturating compared to exp(-d/25)."""
+    if distance_km < 0.05:
+        return 5000
+    return max(0, int(5000 * math.exp(-distance_km / 2000)))
 
 
 def distance_bucket(distance_km: float) -> str:
-    """GeoGuessr-style distance buckets."""
+    """For stratified eval metrics."""
     if distance_km < 1:
         return "<1km"
     elif distance_km < 25:
@@ -251,10 +265,3 @@ def distance_bucket(distance_km: float) -> str:
     elif distance_km < 2500:
         return "750-2500km"
     return ">2500km"
-
-
-def geoguessr_score(distance_km: float) -> int:
-    """GeoGuessr-style score (0-5000 points)."""
-    if distance_km < 0.05:
-        return 5000
-    return max(0, int(5000 * math.exp(-distance_km / 2000)))

@@ -1,5 +1,7 @@
 """
 GRPO training for geospot VLM.
+
+Single-step + geocell hierarchy + tau schedule (Schulman-style).
 """
 
 import asyncio
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 @chz.chz
 class CLIConfig:
-    """Command-line configuration for geospot RL training."""
+    """CLI config for geospot RL training."""
 
     # Model
     model_name: str = "Qwen/Qwen3-VL-235B-A22B-Instruct"
@@ -47,9 +49,14 @@ class CLIConfig:
     max_tokens: int = 256
     temperature: float = 1.0
 
-    # Reward
-    coord_tau: float = 25.0
+    # Reward + tau schedule
+    coord_tau_start: float = 2000.0  # Coarse at start (continent-level signal)
+    coord_tau_end: float = 25.0  # Fine at end (city-level precision)
+    use_tau_schedule: bool = True
+    coord_reward_kind: str = "exp"  # "exp" or "geoguessr"
     coord_weight: float = 0.7
+    geocell_weight: float = 0.3
+    geohash_precision: int = 5
 
     # Logging
     log_path: str | None = None
@@ -65,13 +72,32 @@ class CLIConfig:
     behavior_if_log_dir_exists: LogdirBehavior = "ask"
 
 
-def main(cli: CLIConfig):
-    """GRPO training loop for geo VLM."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+def compute_tau(step: int, max_steps: int, tau_start: float, tau_end: float) -> float:
+    """Exponential tau schedule: coarse → fine."""
+    if max_steps <= 1:
+        return tau_end
+    progress = step / (max_steps - 1)
+    return tau_start * ((tau_end / tau_start) ** progress)
 
+
+async def sample_group(
+    sampling_client: tinker.SamplingClient,
+    observation: tinker.ModelInput,
+    group_size: int,
+    sampling_params: tinker.SamplingParams,
+) -> list[tuple[list[int], list[float]]]:
+    """Sample group_size responses in parallel. Returns [(tokens, logprobs), ...]."""
+    futures = [
+        sampling_client.sample_async(prompt=observation, num_samples=1, sampling_params=sampling_params)
+        for _ in range(group_size)
+    ]
+    results = await asyncio.gather(*futures)
+    return [(r.sequences[0].tokens, r.sequences[0].logprobs) for r in results]
+
+
+async def run_training(cli: CLIConfig):
+    """Main training loop."""
+    # Setup logging
     if cli.log_path:
         log_path = cli.log_path
     else:
@@ -84,6 +110,7 @@ def main(cli: CLIConfig):
 
     logger.info(f"GRPO Training: {cli.hf_repo} -> {log_path}")
     logger.info(f"Model: {cli.model_name}, batch={cli.batch_size}, group={cli.group_size}")
+    logger.info(f"Tau schedule: {cli.coord_tau_start} -> {cli.coord_tau_end} over {cli.max_steps} steps")
 
     if cli.wandb_project:
         wandb.init(
@@ -93,18 +120,30 @@ def main(cli: CLIConfig):
                 "batch_size": cli.batch_size,
                 "group_size": cli.group_size,
                 "learning_rate": cli.learning_rate,
-                "coord_tau": cli.coord_tau,
+                "coord_tau_start": cli.coord_tau_start,
+                "coord_tau_end": cli.coord_tau_end,
+                "use_tau_schedule": cli.use_tau_schedule,
+                "coord_reward_kind": cli.coord_reward_kind,
                 "coord_weight": cli.coord_weight,
+                "geocell_weight": cli.geocell_weight,
+                "geohash_precision": cli.geohash_precision,
                 "max_tokens": cli.max_tokens,
-                "temperature": cli.temperature,
             },
         )
 
+    # Initialize components
     tokenizer = get_tokenizer(cli.model_name)
     image_processor = get_image_processor(cli.model_name)
     renderer = get_renderer(cli.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
 
-    reward_config = GeoRewardConfig(coord_tau=cli.coord_tau, coord_weight=cli.coord_weight)
+    # Base reward config (tau will be updated each step)
+    reward_config = GeoRewardConfig(
+        coord_tau=cli.coord_tau_end,
+        coord_reward_kind=cli.coord_reward_kind,
+        coord_weight=cli.coord_weight,
+        geocell_weight=cli.geocell_weight,
+        geohash_precision=cli.geohash_precision,
+    )
     env_config = GeoEnvConfig(reward_config=reward_config)
 
     dataset = StreamingGeoDataset(
@@ -116,14 +155,13 @@ def main(cli: CLIConfig):
         seed=cli.seed,
     )
 
+    # Training client
     service_client = tinker.ServiceClient(base_url=cli.base_url)
     if cli.load_checkpoint_path:
         training_client = service_client.create_training_client_from_state(cli.load_checkpoint_path)
-        logger.info(f"Loaded checkpoint from {cli.load_checkpoint_path}")
+        logger.info(f"Loaded checkpoint: {cli.load_checkpoint_path}")
     else:
-        training_client = service_client.create_lora_training_client(
-            cli.model_name, rank=cli.lora_rank
-        )
+        training_client = service_client.create_lora_training_client(cli.model_name, rank=cli.lora_rank)
 
     sampling_params = tinker.SamplingParams(
         max_tokens=cli.max_tokens,
@@ -132,90 +170,80 @@ def main(cli: CLIConfig):
     )
     adam_params = AdamParams(learning_rate=cli.learning_rate, beta1=0.9, beta2=0.95, eps=1e-8)
 
+    # Training loop
     for step in range(cli.max_steps):
         t_start = time.time()
 
-        # Get fresh sampling client each step
+        # Update tau (coarse → fine)
+        if cli.use_tau_schedule:
+            reward_config.coord_tau = compute_tau(step, cli.max_steps, cli.coord_tau_start, cli.coord_tau_end)
+        else:
+            reward_config.coord_tau = cli.coord_tau_end
+
+        # Get fresh sampling client
         sampling_path = training_client.save_weights_for_sampler(name=f"{step:06d}").result().path
         sampling_client = service_client.create_sampling_client(model_path=sampling_path)
 
-        # Get batch of env group builders
+        # Get batch of env builders
         builders = dataset.get_batch(cli.batch_size)
         if not builders:
+            logger.warning(f"Step {step}: no data")
             continue
 
-        # Create envs from builders (one env per builder for now, group sampling happens below)
-        loop = asyncio.new_event_loop()
+        # Build environments and get observations
         envs: list[GeoEnv] = []
+        observations: list[tinker.ModelInput] = []
         for builder in builders:
-            env_group = loop.run_until_complete(builder.make_envs())
-            envs.append(env_group[0])  # Take first env from group
+            env_group = await builder.make_envs()
+            env = env_group[0]
+            envs.append(env)
+            ob, _ = await env.initial_observation()
+            observations.append(ob)
 
+        # Sample in parallel across all envs and groups
+        all_samples: list[list[tuple[list[int], list[float]]]] = await asyncio.gather(
+            *[sample_group(sampling_client, ob, cli.group_size, sampling_params) for ob in observations]
+        )
+
+        # Compute rewards and build training datums
         training_datums: list[tinker.Datum] = []
         batch_rewards: list[float] = []
         batch_distances: list[float] = []
+        skipped_uniform = 0
 
-        # Step 1: Get all observations
-        env_obs: list[tuple[tinker.ModelInput, GeoEnv]] = []
-        for env in envs:
-            ob, _ = loop.run_until_complete(env.initial_observation())
-            env_obs.append((ob, env))
-
-        # Step 2: Fire off ALL sample requests in parallel (non-blocking)
-        all_futures: list[list] = []
-        for ob, env in env_obs:
-            group_futures = []
-            for _ in range(cli.group_size):
-                future = sampling_client.sample(
-                    prompt=ob,
-                    num_samples=1,
-                    sampling_params=sampling_params,
-                )
-                group_futures.append(future)
-            all_futures.append(group_futures)
-
-        # Step 3: Collect results and compute rewards
-        for (ob, env), group_futures in zip(env_obs, all_futures):
-            group_tokens: list[list[int]] = []
-            group_logprobs: list[list[float]] = []
+        for env, ob, group_samples in zip(envs, observations, all_samples):
             group_rewards: list[float] = []
             group_distances: list[float] = []
 
-            for future in group_futures:
-                sample_result = future.result()
-                sampled_tokens = sample_result.sequences[0].tokens
-                sampled_logprobs = sample_result.sequences[0].logprobs
-                assert sampled_logprobs is not None
-
-                group_tokens.append(sampled_tokens)
-                group_logprobs.append(sampled_logprobs)
-
-                # Compute reward
+            # Compute reward for each sample in group
+            for tokens, logprobs in group_samples:
                 sample_env = GeoEnv(
                     image=env.image,
                     ground_truth=env.ground_truth,
                     renderer=env.renderer,
                     config=env.config,
                 )
-                step_result = loop.run_until_complete(sample_env.step(sampled_tokens))
+                step_result = await sample_env.step(tokens)
                 group_rewards.append(step_result.reward)
                 if "distance_km" in step_result.metrics:
                     group_distances.append(step_result.metrics["distance_km"])
 
-            # Compute group-centered advantages
+            # Group-centered advantages (GRPO)
             mean_reward = sum(group_rewards) / len(group_rewards)
             advantages = [r - mean_reward for r in group_rewards]
+
             batch_rewards.append(mean_reward)
             if group_distances:
                 batch_distances.append(sum(group_distances) / len(group_distances))
 
-            # Skip if all advantages are zero (no gradient signal)
+            # Skip if all rewards identical (no gradient signal)
             if all(a == 0.0 for a in advantages):
+                skipped_uniform += 1
                 continue
 
-            # Build training datums
+            # Build datums
             ob_len = ob.length - 1
-            for tokens, logprobs, advantage in zip(group_tokens, group_logprobs, advantages):
+            for (tokens, logprobs), advantage in zip(group_samples, advantages):
                 full_chunks = list(ob.chunks) + [tinker.EncodedTextChunk(tokens=tokens[:-1])]
                 full_input = tinker.ModelInput(chunks=full_chunks)
                 full_targets = [0] * ob_len + tokens
@@ -234,48 +262,60 @@ def main(cli: CLIConfig):
                 )
                 training_datums.append(datum)
 
-        loop.close()
-
         if not training_datums:
             logger.warning(f"Step {step}: no training datums (all uniform rewards)")
             continue
 
-        # Training step
-        fwd_bwd_future = training_client.forward_backward(training_datums, loss_fn="importance_sampling")
-        optim_future = training_client.optim_step(adam_params)
-        fwd_bwd_future.result()
-        optim_future.result()
+        # Train
+        fwd_bwd = training_client.forward_backward(training_datums, loss_fn="importance_sampling")
+        optim = training_client.optim_step(adam_params)
+        fwd_bwd.result()
+        optim.result()
 
-        # Logging
+        # Metrics
         mean_reward = sum(batch_rewards) / len(batch_rewards) if batch_rewards else 0
         mean_dist = sum(batch_distances) / len(batch_distances) if batch_distances else 0
         elapsed = time.time() - t_start
+
         logger.info(
             f"Step {step}: reward={mean_reward:.3f}, dist={mean_dist:.0f}km, "
-            f"datums={len(training_datums)}, time={elapsed:.1f}s"
+            f"tau={reward_config.coord_tau:.0f}, datums={len(training_datums)}, "
+            f"skipped={skipped_uniform}, time={elapsed:.1f}s"
         )
 
         if cli.wandb_project:
-            wandb.log({
-                "reward": mean_reward,
-                "distance_km": mean_dist,
-                "datums": len(training_datums),
-                "time_s": elapsed,
-                "step": step,
-            })
+            wandb.log(
+                {
+                    "progress/step": step,
+                    "reward/mean": mean_reward,
+                    "distance_km/mean": mean_dist,
+                    "optim/coord_tau": reward_config.coord_tau,
+                    "optim/datums": len(training_datums),
+                    "optim/skipped_uniform": skipped_uniform,
+                    "time/step_s": elapsed,
+                }
+            )
 
-        # Save checkpoint
+        # Checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
             training_client.save_state(name=f"step_{step:06d}").result()
             logger.info(f"Saved checkpoint: step_{step:06d}")
 
     # Final checkpoint
     result = training_client.save_state(name="final").result()
-    logger.info("GRPO training complete!")
-    logger.info(f"Checkpoint: {result.path}")
+    logger.info(f"Training complete! Checkpoint: {result.path}")
 
     if cli.wandb_project:
         wandb.finish()
+
+
+def main(cli: CLIConfig):
+    """Entry point."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    asyncio.run(run_training(cli))
 
 
 if __name__ == "__main__":

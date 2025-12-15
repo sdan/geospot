@@ -193,13 +193,12 @@ def image_to_chunk(
     buf = io.BytesIO()
     pil_image.save(buf, format="JPEG")
 
+    # Calculate expected tokens for Qwen3-VL
     w, h = pil_image.size
-    num_tokens = (
-        image_processor.get_number_of_image_patches(h, w, images_kwargs={})
-        // image_processor.merge_size**2
-    )
+    patches = image_processor.get_number_of_image_patches(h, w, images_kwargs={})
+    expected_tokens = patches // (image_processor.merge_size ** 2)
 
-    return tinker.types.ImageChunk(data=buf.getvalue(), format="jpeg", expected_tokens=num_tokens)
+    return tinker.types.ImageChunk(data=buf.getvalue(), format="jpeg", expected_tokens=expected_tokens)
 
 
 class Qwen3Renderer(Renderer):

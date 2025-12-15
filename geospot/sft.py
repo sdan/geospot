@@ -13,7 +13,7 @@ import tinker
 import torch
 
 from geospot.cli_utils import check_log_dir, LogdirBehavior
-from geospot.data import GeoSample, get_shard_urls, iterate_samples
+from geospot.data import GeoSample, iterate_samples
 from geospot.renderers import (
     ImagePart,
     Message,
@@ -206,8 +206,12 @@ def main(cli: CLIConfig):
     renderer = get_renderer(cli.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
 
     def make_sample_iter(seed: int):
-        urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=seed)
-        return iterate_samples(urls, shuffle_buffer=cli.shuffle_buffer)
+        return iterate_samples(
+            hf_repo=cli.hf_repo,
+            max_shards=cli.max_shards,
+            seed=seed,
+            shuffle_buffer=cli.shuffle_buffer,
+        )
 
     sample_iter = make_sample_iter(cli.seed)
 

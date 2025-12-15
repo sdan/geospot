@@ -12,7 +12,7 @@ import chz
 from datasets import Dataset, load_dataset
 from PIL import Image
 
-from geospot.data import GeoSample, get_shard_urls, iterate_samples
+from geospot.data import GeoSample, iterate_samples
 from geospot.rl.types import RLDataset, RLDatasetBuilder, EnvGroupBuilder
 from geospot.rl.geo_env import GeoEnv, GeoEnvConfig, GeoGroupBuilder
 from geospot.rl.geo_reward import GeoLocation, GeoRewardConfig
@@ -142,8 +142,11 @@ class StreamingGeoDataset(RLDataset):
 
     def _get_sample_iter(self) -> Iterator[GeoSample]:
         if self._sample_iter is None:
-            urls = get_shard_urls(self.hf_repo, max_shards=self.max_shards, seed=self.seed)
-            self._sample_iter = iterate_samples(urls)
+            self._sample_iter = iterate_samples(
+                hf_repo=self.hf_repo,
+                max_shards=self.max_shards,
+                seed=self.seed,
+            )
         return self._sample_iter
 
     def reset(self, seed: int | None = None):
