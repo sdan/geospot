@@ -6,12 +6,13 @@ import io
 import logging
 import math
 from functools import partial
-from typing import Any, Sequence, cast
+from typing import Any, Iterator, Sequence, cast
 
 import chz
 from datasets import Dataset, load_dataset
 from PIL import Image
 
+from geospot.data import GeoSample, get_shard_urls, iterate_samples
 from geospot.rl.types import RLDataset, RLDatasetBuilder, EnvGroupBuilder
 from geospot.rl.geo_env import GeoEnv, GeoEnvConfig, GeoGroupBuilder
 from geospot.rl.geo_reward import GeoLocation, GeoRewardConfig
@@ -119,6 +120,74 @@ class GeoDataset(RLDataset):
             return None
 
 
+class StreamingGeoDataset(RLDataset):
+    """Streaming RL dataset using webdataset for manifest-based datasets like geospot-unified."""
+
+    def __init__(
+        self,
+        hf_repo: str,
+        group_size: int,
+        renderer: Renderer,
+        env_config: GeoEnvConfig | None = None,
+        max_shards: int | None = None,
+        seed: int = 0,
+    ):
+        self.hf_repo = hf_repo
+        self.group_size = group_size
+        self.renderer = renderer
+        self.env_config = env_config or GeoEnvConfig()
+        self.max_shards = max_shards
+        self.seed = seed
+        self._sample_iter: Iterator[GeoSample] | None = None
+
+    def _get_sample_iter(self) -> Iterator[GeoSample]:
+        if self._sample_iter is None:
+            urls = get_shard_urls(self.hf_repo, max_shards=self.max_shards, seed=self.seed)
+            self._sample_iter = iterate_samples(urls)
+        return self._sample_iter
+
+    def reset(self, seed: int | None = None):
+        """Reset the iterator with optional new seed."""
+        if seed is not None:
+            self.seed = seed
+        self._sample_iter = None
+
+    def __len__(self) -> int:
+        return -1  # Streaming, unknown length
+
+    def get_batch(self, batch_size: int) -> Sequence[EnvGroupBuilder]:
+        """Get a batch of EnvGroupBuilders."""
+        sample_iter = self._get_sample_iter()
+        builders: list[GeoGroupBuilder] = []
+
+        while len(builders) < batch_size:
+            try:
+                sample = next(sample_iter)
+                ground_truth = GeoLocation(
+                    lat=sample.lat,
+                    lon=sample.lon,
+                    city=sample.city,
+                    country=sample.country,
+                )
+                builder = GeoGroupBuilder(
+                    env_thunk=partial(
+                        GeoEnv,
+                        image=sample.image,
+                        ground_truth=ground_truth,
+                        renderer=self.renderer,
+                        config=self.env_config,
+                    ),
+                    num_envs=self.group_size,
+                    dataset_name=sample.source or "geospot",
+                )
+                builders.append(builder)
+            except StopIteration:
+                logger.info("Dataset exhausted, reshuffling...")
+                self.reset(self.seed + 1)
+
+        return builders
+
+
 @chz.chz
 class GeoDatasetBuilder(RLDatasetBuilder):
     """Builder for GeoDataset."""
@@ -207,3 +276,39 @@ class OSV5MDatasetBuilder(GeoDatasetBuilder):
     image_column: str = "image"
     lat_column: str = "latitude"
     lon_column: str = "longitude"
+
+
+@chz.chz
+class StreamingGeoDatasetBuilder(RLDatasetBuilder):
+    """Builder for StreamingGeoDataset (webdataset-based, e.g., geospot-unified)."""
+
+    hf_repo: str = "sdan/geospot-unified"
+    group_size: int = 16
+    model_name_for_tokenizer: str = "Qwen/Qwen3-VL-235B-A22B-Instruct"
+    renderer_name: str = "qwen3_vl"
+
+    max_shards: int | None = None
+    seed: int = 0
+    max_image_size: int = 480
+    reward_config: GeoRewardConfig | None = None
+
+    async def __call__(self) -> tuple[StreamingGeoDataset, None]:
+        tokenizer = get_tokenizer(self.model_name_for_tokenizer)
+        image_processor = get_image_processor(self.model_name_for_tokenizer)
+        renderer = get_renderer(self.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
+
+        env_config = GeoEnvConfig(
+            max_image_size=self.max_image_size,
+            reward_config=self.reward_config,
+        )
+
+        dataset = StreamingGeoDataset(
+            hf_repo=self.hf_repo,
+            group_size=self.group_size,
+            renderer=renderer,
+            env_config=env_config,
+            max_shards=self.max_shards,
+            seed=self.seed,
+        )
+
+        return dataset, None  # No test set for streaming

@@ -40,7 +40,7 @@ uv run python -m geospot.train max_steps=100
 
 ## Data
 
-[sdan/geospot-vista9](https://huggingface.co/datasets/sdan/geospot-vista9) — 9M street view images with coordinates.
+[sdan/geospot-unified](https://huggingface.co/datasets/sdan/geospot-unified) — unified geolocation dataset with multiple sources (cvcities, streetview, osv5m, mp16pro, msls).
 
 ## References
 

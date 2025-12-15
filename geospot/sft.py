@@ -4,19 +4,16 @@ SFT warm-start for geospot VLM.
 
 import logging
 import os
-import random
 import time
 from datetime import datetime
-from typing import Any, Iterator
+from typing import Iterator
 
 import chz
 import tinker
 import torch
-import webdataset as wds
-from huggingface_hub import list_repo_files
-from PIL import Image
 
 from geospot.cli_utils import check_log_dir, LogdirBehavior
+from geospot.data import GeoSample, get_shard_urls, iterate_samples
 from geospot.renderers import (
     ImagePart,
     Message,
@@ -122,113 +119,33 @@ def format_ground_truth(lat: float, lon: float) -> str:
     return f"Latitude: {lat:.6f}\nLongitude: {lon:.6f}"
 
 
-def get_shard_urls(hf_repo: str, max_shards: int | None = None, seed: int = 0, prefix: str = "shardheadings/") -> list[str]:
-    """Get shuffled tar shard URLs from HuggingFace."""
-    logger.info(f"Fetching shard list from {hf_repo}...")
-    files = list(list_repo_files(hf_repo, repo_type="dataset"))
+def sample_to_datum(
+    sample: GeoSample,
+    renderer,
+    max_length: int,
+    train_on_what: TrainOnWhat,
+) -> tinker.Datum | None:
+    """Convert a GeoSample to a training Datum."""
+    try:
+        user_content = [
+            ImagePart(type="image", image=sample.image),
+            TextPart(type="text", text=DEFAULT_GEO_PROMPT),
+        ]
+        assistant_content = format_ground_truth(sample.lat, sample.lon)
 
-    # Filter to shardheadings/ directory
-    tar_files = [f for f in files if f.endswith(".tar") and f.startswith(prefix)]
-    logger.info(f"Found {len(tar_files)} shards in {prefix}")
+        messages = [
+            Message(role="user", content=user_content),
+            Message(role="assistant", content=assistant_content),
+        ]
 
-    # Shuffle shards
-    random.seed(seed)
-    random.shuffle(tar_files)
-
-    if max_shards:
-        tar_files = tar_files[:max_shards]
-
-    base_url = f"https://huggingface.co/datasets/{hf_repo}/resolve/main"
-    urls = [f"{base_url}/{f}" for f in tar_files]
-    logger.info(f"Using {len(urls)} shards")
-    return urls
-
-
-class WebDatasetIterator:
-    """Streaming iterator over WebDataset shards."""
-
-    def __init__(
-        self,
-        urls: list[str],
-        renderer,
-        max_length: int,
-        train_on_what: TrainOnWhat,
-        shuffle_buffer: int = 1000,
-    ):
-        self.urls = urls
-        self.renderer = renderer
-        self.max_length = max_length
-        self.train_on_what = train_on_what
-        self.shuffle_buffer = shuffle_buffer
-
-    def __iter__(self) -> Iterator[tinker.Datum]:
-        def warn_and_continue(exn):
-            """Log warning and skip failed shards."""
-            logger.warning(f"Skipping shard due to error: {exn}")
-            return True
-
-        dataset = (
-            wds.WebDataset(self.urls, shardshuffle=1000, handler=warn_and_continue)
-            .shuffle(self.shuffle_buffer)
-            .decode("pil", handler=warn_and_continue)
+        model_input, weights = renderer.build_supervised_example(
+            messages, train_on_what=train_on_what
         )
 
-        for sample in dataset:
-            datum = self._sample_to_datum(sample)
-            if datum is not None:
-                yield datum
-
-    def _get_image(self, sample: dict[str, Any]) -> Image.Image | None:
-        """Get image from sample, handling different formats."""
-        # Single image format (country shards)
-        if "jpg" in sample:
-            return sample["jpg"]
-        if "png" in sample:
-            return sample["png"]
-        # Multi-heading format (shardheadings/) - pick random heading
-        headings = ["000.jpg", "090.jpg", "180.jpg", "270.jpg"]
-        available = [h for h in headings if h in sample]
-        if available:
-            return sample[random.choice(available)]
+        return datum_from_model_input_weights(model_input, weights, max_length=max_length)
+    except Exception as e:
+        logger.debug(f"Failed to create datum: {e}")
         return None
-
-    def _sample_to_datum(self, sample: dict[str, Any]) -> tinker.Datum | None:
-        try:
-            image = self._get_image(sample)
-            if image is None:
-                return None
-            if image.mode in ("RGBA", "LA", "P"):
-                image = image.convert("RGB")
-
-            json_data = sample.get("json", {})
-            lat = float(json_data.get("lat", 0))
-            lon = float(json_data.get("lng") or json_data.get("lon", 0))
-
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                return None
-
-            user_content = [
-                ImagePart(type="image", image=image),
-                TextPart(type="text", text=DEFAULT_GEO_PROMPT),
-            ]
-            assistant_content = format_ground_truth(lat, lon)
-
-            messages = [
-                Message(role="user", content=user_content),
-                Message(role="assistant", content=assistant_content),
-            ]
-
-            model_input, weights = self.renderer.build_supervised_example(
-                messages, train_on_what=self.train_on_what
-            )
-
-            # Use helper to properly format datum with target_tokens
-            return datum_from_model_input_weights(
-                model_input, weights, max_length=self.max_length
-            )
-        except Exception as e:
-            logger.debug(f"Failed to create datum: {e}")
-            return None
 
 
 @chz.chz
@@ -241,8 +158,8 @@ class CLIConfig:
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geospot-vista9"
-    max_shards: int | None = None  # None = all shards
+    hf_repo: str = "sdan/geospot-unified"
+    max_shards: int | None = None
     max_steps: int = 1000
 
     # Training
@@ -288,14 +205,11 @@ def main(cli: CLIConfig):
     image_processor = get_image_processor(cli.model_name)
     renderer = get_renderer(cli.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
 
-    urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=cli.seed)
-    data_iter = iter(WebDatasetIterator(
-        urls=urls,
-        renderer=renderer,
-        max_length=cli.max_length,
-        train_on_what=TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-        shuffle_buffer=cli.shuffle_buffer,
-    ))
+    def make_sample_iter(seed: int):
+        urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=seed)
+        return iterate_samples(urls, shuffle_buffer=cli.shuffle_buffer)
+
+    sample_iter = make_sample_iter(cli.seed)
 
     service_client = tinker.ServiceClient(base_url=cli.base_url)
     training_client = service_client.create_lora_training_client(
@@ -309,18 +223,18 @@ def main(cli: CLIConfig):
         batch = []
         while len(batch) < cli.batch_size:
             try:
-                datum = next(data_iter)
-                batch.append(datum)
-            except StopIteration:
-                logger.info("Dataset exhausted, reshuffling...")
-                urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=cli.seed + step)
-                data_iter = iter(WebDatasetIterator(
-                    urls=urls,
+                sample = next(sample_iter)
+                datum = sample_to_datum(
+                    sample,
                     renderer=renderer,
                     max_length=cli.max_length,
                     train_on_what=TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-                    shuffle_buffer=cli.shuffle_buffer,
-                ))
+                )
+                if datum is not None:
+                    batch.append(datum)
+            except StopIteration:
+                logger.info("Dataset exhausted, reshuffling...")
+                sample_iter = make_sample_iter(cli.seed + step)
 
         if not batch:
             logger.warning("Empty batch, skipping step")

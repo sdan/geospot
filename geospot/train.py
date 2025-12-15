@@ -5,18 +5,13 @@ GRPO training for geospot VLM.
 import asyncio
 import logging
 import os
-import random
 import time
 from datetime import datetime
-from typing import Any, Iterator
 
 import chz
 import tinker
 import torch
 import wandb
-import webdataset as wds
-from huggingface_hub import list_repo_files
-from PIL import Image
 from tinker import TensorData
 from tinker.types import AdamParams
 
@@ -24,112 +19,11 @@ from geospot.cli_utils import check_log_dir, LogdirBehavior
 from geospot.renderers import get_renderer
 from geospot.tokenizer_utils import get_tokenizer
 from geospot.image_processing_utils import get_image_processor
+from geospot.rl.geo_dataset import StreamingGeoDataset
 from geospot.rl.geo_env import GeoEnv, GeoEnvConfig
-from geospot.rl.geo_reward import GeoLocation, GeoRewardConfig
+from geospot.rl.geo_reward import GeoRewardConfig
 
 logger = logging.getLogger(__name__)
-
-
-def get_shard_urls(hf_repo: str, max_shards: int | None = None, seed: int = 0, prefix: str = "shardheadings/") -> list[str]:
-    """Get shuffled tar shard URLs from HuggingFace."""
-    logger.info(f"Fetching shard list from {hf_repo}...")
-    files = list(list_repo_files(hf_repo, repo_type="dataset"))
-    tar_files = [f for f in files if f.endswith(".tar") and f.startswith(prefix)]
-    logger.info(f"Found {len(tar_files)} shards in {prefix}")
-
-    random.seed(seed)
-    random.shuffle(tar_files)
-
-    if max_shards:
-        tar_files = tar_files[:max_shards]
-
-    base_url = f"https://huggingface.co/datasets/{hf_repo}/resolve/main"
-    urls = [f"{base_url}/{f}" for f in tar_files]
-    logger.info(f"Using {len(urls)} shards")
-    return urls
-
-
-class WebDatasetEnvIterator:
-    """Streaming iterator that yields GeoEnv instances from WebDataset."""
-
-    def __init__(
-        self,
-        urls: list[str],
-        renderer,
-        env_config: GeoEnvConfig,
-        shuffle_buffer: int = 1000,
-        max_image_size: int = 480,
-    ):
-        self.urls = urls
-        self.renderer = renderer
-        self.env_config = env_config
-        self.shuffle_buffer = shuffle_buffer
-        self.max_image_size = max_image_size
-
-    def __iter__(self) -> Iterator[GeoEnv]:
-        def warn_and_continue(exn):
-            logger.warning(f"Skipping shard: {exn}")
-            return True
-
-        dataset = (
-            wds.WebDataset(self.urls, shardshuffle=1000, handler=warn_and_continue)
-            .shuffle(self.shuffle_buffer)
-            .decode("pil", handler=warn_and_continue)
-        )
-
-        for sample in dataset:
-            env = self._sample_to_env(sample)
-            if env is not None:
-                yield env
-
-    def _get_image(self, sample: dict[str, Any]) -> Image.Image | None:
-        if "jpg" in sample:
-            return sample["jpg"]
-        if "png" in sample:
-            return sample["png"]
-        headings = ["000.jpg", "090.jpg", "180.jpg", "270.jpg"]
-        available = [h for h in headings if h in sample]
-        if available:
-            return sample[random.choice(available)]
-        return None
-
-    def _sample_to_env(self, sample: dict[str, Any]) -> GeoEnv | None:
-        try:
-            image = self._get_image(sample)
-            if image is None:
-                return None
-            if image.mode in ("RGBA", "LA", "P"):
-                image = image.convert("RGB")
-
-            # Resize if needed
-            if self.max_image_size and max(image.size) > self.max_image_size:
-                ratio = self.max_image_size / max(image.size)
-                new_size = (int(image.width * ratio), int(image.height * ratio))
-                image = image.resize(new_size, Image.LANCZOS)
-
-            json_data = sample.get("json", {})
-            lat = float(json_data.get("lat", 0))
-            lon = float(json_data.get("lng") or json_data.get("lon", 0))
-
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                return None
-
-            ground_truth = GeoLocation(
-                lat=lat,
-                lon=lon,
-                city=json_data.get("city"),
-                country=json_data.get("country") or json_data.get("region"),
-            )
-
-            return GeoEnv(
-                image=image,
-                ground_truth=ground_truth,
-                renderer=self.renderer,
-                config=self.env_config,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to create env: {e}")
-            return None
 
 
 @chz.chz
@@ -142,7 +36,7 @@ class CLIConfig:
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geospot-vista9"
+    hf_repo: str = "sdan/geospot-unified"
     max_shards: int | None = None
     max_steps: int = 100
 
@@ -213,13 +107,14 @@ def main(cli: CLIConfig):
     reward_config = GeoRewardConfig(coord_tau=cli.coord_tau, coord_weight=cli.coord_weight)
     env_config = GeoEnvConfig(reward_config=reward_config)
 
-    urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=cli.seed)
-    env_iter = iter(WebDatasetEnvIterator(
-        urls=urls,
+    dataset = StreamingGeoDataset(
+        hf_repo=cli.hf_repo,
+        group_size=cli.group_size,
         renderer=renderer,
         env_config=env_config,
-        shuffle_buffer=1000,
-    ))
+        max_shards=cli.max_shards,
+        seed=cli.seed,
+    )
 
     service_client = tinker.ServiceClient(base_url=cli.base_url)
     if cli.load_checkpoint_path:
@@ -244,27 +139,23 @@ def main(cli: CLIConfig):
         sampling_path = training_client.save_weights_for_sampler(name=f"{step:06d}").result().path
         sampling_client = service_client.create_sampling_client(model_path=sampling_path)
 
-        # Collect batch of envs
-        envs: list[GeoEnv] = []
-        while len(envs) < cli.batch_size:
-            try:
-                envs.append(next(env_iter))
-            except StopIteration:
-                logger.info("Dataset exhausted, reshuffling...")
-                urls = get_shard_urls(cli.hf_repo, max_shards=cli.max_shards, seed=cli.seed + step)
-                env_iter = iter(WebDatasetEnvIterator(
-                    urls=urls, renderer=renderer, env_config=env_config, shuffle_buffer=1000,
-                ))
-
-        if not envs:
+        # Get batch of env group builders
+        builders = dataset.get_batch(cli.batch_size)
+        if not builders:
             continue
+
+        # Create envs from builders (one env per builder for now, group sampling happens below)
+        loop = asyncio.new_event_loop()
+        envs: list[GeoEnv] = []
+        for builder in builders:
+            env_group = loop.run_until_complete(builder.make_envs())
+            envs.append(env_group[0])  # Take first env from group
 
         training_datums: list[tinker.Datum] = []
         batch_rewards: list[float] = []
         batch_distances: list[float] = []
 
         # Step 1: Get all observations
-        loop = asyncio.new_event_loop()
         env_obs: list[tuple[tinker.ModelInput, GeoEnv]] = []
         for env in envs:
             ob, _ = loop.run_until_complete(env.initial_observation())
