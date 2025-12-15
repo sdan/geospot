@@ -3,8 +3,8 @@ import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GeoSpot Viz",
-  description: "Geolocation RL visualization components",
+  title: "Geospot | Tinker Dashboard",
+  description: "Training dashboard for Thinking Machines Tinker API",
 };
 
 export default function RootLayout({

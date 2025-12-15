@@ -203,7 +203,7 @@ export default function Dashboard() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Usage</h1>
+        <h1 className="text-xl font-semibold">Tinker-ing</h1>
       </div>
 
       {/* Stats Row */}
