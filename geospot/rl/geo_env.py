@@ -116,9 +116,8 @@ class GeoEnv(Env):
         if reward_result.distance_km is not None:
             metrics["distance_bucket"] = distance_bucket(reward_result.distance_km)
 
-        logger.debug(
-            f"GeoEnv: distance={reward_result.distance_km:.1f}km, reward={total_reward:.3f}"
-        )
+        if reward_result.distance_km is not None:
+            logger.debug(f"GeoEnv: distance={reward_result.distance_km:.1f}km, reward={total_reward:.3f}")
 
         return StepResult(
             reward=total_reward,

@@ -13,6 +13,7 @@ from typing import Any, Iterator
 import chz
 import tinker
 import torch
+import wandb
 import webdataset as wds
 from huggingface_hub import list_repo_files
 from PIL import Image
@@ -158,6 +159,7 @@ class CLIConfig:
 
     # Logging
     log_path: str | None = None
+    wandb_project: str | None = "geospot-vlm"
 
     # Checkpointing
     save_every: int = 50
@@ -188,6 +190,21 @@ def main(cli: CLIConfig):
 
     logger.info(f"GRPO Training: {cli.hf_repo} -> {log_path}")
     logger.info(f"Model: {cli.model_name}, batch={cli.batch_size}, group={cli.group_size}")
+
+    if cli.wandb_project:
+        wandb.init(
+            project=cli.wandb_project,
+            config={
+                "model_name": cli.model_name,
+                "batch_size": cli.batch_size,
+                "group_size": cli.group_size,
+                "learning_rate": cli.learning_rate,
+                "coord_tau": cli.coord_tau,
+                "coord_weight": cli.coord_weight,
+                "max_tokens": cli.max_tokens,
+                "temperature": cli.temperature,
+            },
+        )
 
     tokenizer = get_tokenizer(cli.model_name)
     image_processor = get_image_processor(cli.model_name)
@@ -347,6 +364,15 @@ def main(cli: CLIConfig):
             f"datums={len(training_datums)}, time={elapsed:.1f}s"
         )
 
+        if cli.wandb_project:
+            wandb.log({
+                "reward": mean_reward,
+                "distance_km": mean_dist,
+                "datums": len(training_datums),
+                "time_s": elapsed,
+                "step": step,
+            })
+
         # Save checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
             training_client.save_state(name=f"step_{step:06d}").result()
@@ -356,6 +382,9 @@ def main(cli: CLIConfig):
     result = training_client.save_state(name="final").result()
     logger.info("GRPO training complete!")
     logger.info(f"Checkpoint: {result.path}")
+
+    if cli.wandb_project:
+        wandb.finish()
 
 
 if __name__ == "__main__":

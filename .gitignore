@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 runs/
 .DS_Store
+
+# viz (Next.js)
+viz/node_modules/
+viz/.next/
+viz/out/
+viz/.env*.local
