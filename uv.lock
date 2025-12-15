@@ -471,6 +471,7 @@ dependencies = [
     { name = "tinker" },
     { name = "torch" },
     { name = "transformers" },
+    { name = "wandb" },
     { name = "webdataset" },
 ]
 
@@ -500,6 +501,7 @@ requires-dist = [
     { name = "tinker" },
     { name = "torch", specifier = ">=2.0" },
     { name = "transformers", specifier = ">=4.40.0" },
+    { name = "wandb", specifier = ">=0.23.1" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.16.0" },
     { name = "webdataset", specifier = ">=1.0.2" },
     { name = "webdataset", marker = "extra == 'webdataset'", specifier = ">=0.2.100" },

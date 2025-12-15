@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from datetime import datetime
 
 import chz
@@ -18,6 +19,8 @@ from tinker import TensorData
 from tinker.types import AdamParams
 
 from geospot.cli_utils import check_log_dir, LogdirBehavior
+from geospot.db import DBWriter
+from geospot.rl.geo_reward import parse_geo_response
 from geospot.renderers import get_renderer
 from geospot.tokenizer_utils import get_tokenizer
 from geospot.image_processing_utils import get_image_processor
@@ -155,13 +158,13 @@ async def run_training(cli: CLIConfig):
         seed=cli.seed,
     )
 
-    # Training client
+    # Training client (use async variants to avoid deadlocks)
     service_client = tinker.ServiceClient(base_url=cli.base_url)
     if cli.load_checkpoint_path:
-        training_client = service_client.create_training_client_from_state(cli.load_checkpoint_path)
+        training_client = await service_client.create_training_client_from_state_async(cli.load_checkpoint_path)
         logger.info(f"Loaded checkpoint: {cli.load_checkpoint_path}")
     else:
-        training_client = service_client.create_lora_training_client(cli.model_name, rank=cli.lora_rank)
+        training_client = await service_client.create_lora_training_client_async(cli.model_name, rank=cli.lora_rank)
 
     sampling_params = tinker.SamplingParams(
         max_tokens=cli.max_tokens,
@@ -169,6 +172,26 @@ async def run_training(cli: CLIConfig):
         stop=renderer.get_stop_sequences(),
     )
     adam_params = AdamParams(learning_rate=cli.learning_rate, beta1=0.9, beta2=0.95, eps=1e-8)
+
+    # Initialize viz DB writer
+    run_id = str(uuid.uuid4())[:8]
+    db = DBWriter(
+        run_id=run_id,
+        run_name=cli.hf_repo,
+        run_type="rl",
+        config={
+            "model_name": cli.model_name,
+            "hf_repo": cli.hf_repo,
+            "lora_rank": cli.lora_rank,
+            "batch_size": cli.batch_size,
+            "group_size": cli.group_size,
+            "learning_rate": cli.learning_rate,
+            "coord_tau_start": cli.coord_tau_start,
+            "coord_tau_end": cli.coord_tau_end,
+            "max_steps": cli.max_steps,
+        },
+    )
+    logger.info(f"Viz dashboard: http://localhost:3001/live/{run_id}")
 
     # Training loop
     for step in range(cli.max_steps):
@@ -180,9 +203,8 @@ async def run_training(cli: CLIConfig):
         else:
             reward_config.coord_tau = cli.coord_tau_end
 
-        # Get fresh sampling client
-        sampling_path = training_client.save_weights_for_sampler(name=f"{step:06d}").result().path
-        sampling_client = service_client.create_sampling_client(model_path=sampling_path)
+        # Get fresh sampling client (combined async call is more efficient)
+        sampling_client = await training_client.save_weights_and_get_sampling_client_async(name=f"{step:06d}")
 
         # Get batch of env builders
         builders = dataset.get_batch(cli.batch_size)
@@ -211,12 +233,24 @@ async def run_training(cli: CLIConfig):
         batch_distances: list[float] = []
         skipped_uniform = 0
 
-        for env, ob, group_samples in zip(envs, observations, all_samples):
+        for group_idx, (env, ob, group_samples) in enumerate(zip(envs, observations, all_samples)):
             group_rewards: list[float] = []
             group_distances: list[float] = []
+            sample_results: list[tuple[int, dict]] = []  # (sample_idx, metrics) for DB logging
+
+            # Log image once per group
+            image_id = db.log_image(
+                step=step,
+                group_idx=group_idx,
+                image=env.image,
+                gt_lat=env.ground_truth.lat,
+                gt_lon=env.ground_truth.lon,
+                gt_city=getattr(env.ground_truth, "city", None),
+                gt_country=getattr(env.ground_truth, "country", None),
+            )
 
             # Compute reward for each sample in group
-            for tokens, logprobs in group_samples:
+            for sample_idx, (tokens, logprobs) in enumerate(group_samples):
                 sample_env = GeoEnv(
                     image=env.image,
                     ground_truth=env.ground_truth,
@@ -227,6 +261,21 @@ async def run_training(cli: CLIConfig):
                 group_rewards.append(step_result.reward)
                 if "distance_km" in step_result.metrics:
                     group_distances.append(step_result.metrics["distance_km"])
+
+                # Parse prediction for DB logging
+                decoded_text = tokenizer.decode(tokens)
+                parsed = parse_geo_response(decoded_text)
+                db.log_sample(
+                    image_id=image_id,
+                    sample_idx=sample_idx,
+                    pred_lat=parsed.location.lat if parsed.location else None,
+                    pred_lon=parsed.location.lon if parsed.location else None,
+                    pred_text=decoded_text[:500],  # Truncate for DB
+                    distance_km=step_result.metrics.get("distance_km"),
+                    reward=step_result.reward,
+                    format_valid=parsed.format_valid,
+                    mean_logprob=sum(logprobs) / len(logprobs) if logprobs else None,
+                )
 
             # Group-centered advantages (GRPO)
             mean_reward = sum(group_rewards) / len(group_rewards)
@@ -296,6 +345,16 @@ async def run_training(cli: CLIConfig):
                 }
             )
 
+        # Log to viz DB
+        db.log_step(
+            step=step,
+            mean_reward=mean_reward,
+            mean_distance_km=mean_dist,
+            coord_tau=reward_config.coord_tau,
+            num_datums=len(training_datums),
+            elapsed_s=elapsed,
+        )
+
         # Checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
             training_client.save_state(name=f"step_{step:06d}").result()
@@ -303,6 +362,7 @@ async def run_training(cli: CLIConfig):
 
     # Final checkpoint
     result = training_client.save_state(name="final").result()
+    db.close()
     logger.info(f"Training complete! Checkpoint: {result.path}")
 
     if cli.wandb_project:

@@ -1,0 +1,10 @@
+Using `use_fast=True` but `torchvision` is not available. Falling back to the slow image processor.
+2025-12-15 00:38:36,617 - tinker.lib.public_interfaces.service_client - INFO - ServiceClient initialized for session 8e1b83ff-f809-588a-84fd-fc7c5ad718e8
+2025-12-15 00:39:49,478 - tinker.lib.public_interfaces.service_client - INFO - TrainingClient initialized for model 8e1b83ff-f809-588a-84fd-fc7c5ad718e8:train:0
+2025-12-15 00:39:52,785 - __main__ - INFO - Loaded checkpoint: tinker://93aa6903-4d94-5f18-9eae-11a0b1e564f9:train:0/weights/final
+2025-12-15 00:39:52,788 - __main__ - INFO - Viz dashboard: http://localhost:3001/live/5c754974
+2025-12-15 00:41:10,880 - geospot.data.streaming - INFO - Loaded 11088 shards from manifest
+2025-12-15 00:41:10,882 - geospot.data.streaming - INFO - Found 11088 shards
+2025-12-15 00:41:10,887 - geospot.data.streaming - INFO - Using 50 shards
+2025-12-15 00:46:11,945 - __main__ - INFO - Step 0: reward=0.530, dist=1892km, tau=2000, datums=2048, skipped=0, time=379.2s
+2025-12-15 00:52:33,359 - __main__ - INFO - Step 1: reward=0.604, dist=1236km, tau=1829, datums=2048, skipped=0, time=381.4s

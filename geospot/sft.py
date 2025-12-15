@@ -5,6 +5,7 @@ SFT warm-start for geospot VLM.
 import logging
 import os
 import time
+import uuid
 from datetime import datetime
 from typing import Iterator
 
@@ -13,6 +14,7 @@ import tinker
 import torch
 
 from geospot.cli_utils import check_log_dir, LogdirBehavior
+from geospot.db import DBWriter
 from geospot.data import GeoSample, iterate_samples
 from geospot.renderers import (
     ImagePart,
@@ -220,6 +222,23 @@ def main(cli: CLIConfig):
         cli.model_name, rank=cli.lora_rank
     )
 
+    # Initialize viz DB writer
+    run_id = str(uuid.uuid4())[:8]
+    db = DBWriter(
+        run_id=run_id,
+        run_name=cli.hf_repo,
+        run_type="sft",
+        config={
+            "model_name": cli.model_name,
+            "hf_repo": cli.hf_repo,
+            "lora_rank": cli.lora_rank,
+            "batch_size": cli.batch_size,
+            "learning_rate": cli.learning_rate,
+            "max_steps": cli.max_steps,
+        },
+    )
+    logger.info(f"Viz dashboard: http://localhost:3001/live/{run_id}")
+
     for step in range(cli.max_steps):
         t_start = time.time()
 
@@ -257,6 +276,15 @@ def main(cli: CLIConfig):
         elapsed = time.time() - t_start
         logger.info(f"Step {step}: tokens={num_tokens}, lr={lr:.2e}, time={elapsed:.1f}s")
 
+        # Log to viz DB
+        db.log_step(
+            step=step,
+            num_tokens=num_tokens,
+            num_datums=len(batch),
+            learning_rate=lr,
+            elapsed_s=elapsed,
+        )
+
         # Checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
             training_client.save_state(name=f"step_{step:06d}").result()
@@ -264,6 +292,7 @@ def main(cli: CLIConfig):
 
     # Final checkpoint
     result = training_client.save_state(name="final").result()
+    db.close()
     logger.info("SFT complete!")
     logger.info(f"Checkpoint: {result.path}")
 

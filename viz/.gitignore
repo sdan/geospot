@@ -1,1 +1,6 @@
 .vercel
+
+# Training viz data (generated at runtime)
+live.db
+public/live/images/*
+!public/live/images/.gitkeep

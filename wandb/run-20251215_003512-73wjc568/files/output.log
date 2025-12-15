@@ -1,0 +1,64 @@
+Using `use_fast=True` but `torchvision` is not available. Falling back to the slow image processor.
+2025-12-15 00:35:16,891 - tinker.lib.public_interfaces.service_client - INFO - ServiceClient initialized for session ab3946ff-65ff-5a06-938d-657efefcf264
+2025-12-15 00:35:16,891 - tinker.lib.sync_only - WARNING - Synchronous method 'ServiceClient.create_training_client_from_state()' called from async context. Use 'ServiceClient.create_training_client_from_state_async()' instead.
+Calling sync methods from async code can cause deadlocks and performance issues.
+2025-12-15 00:35:16,896 - tinker.lib.sync_only - WARNING - ===== Stack for calling sync from async =====
+['  File "<frozen runpy>", line 198, in _run_module_as_main\n', '  File "<frozen runpy>", line 88, in _run_code\n', '  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 383, in <module>\n    chz.nested_entrypoint(main)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 39, in inner\n    return fn(*args, **kwargs)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 109, in nested_entrypoint\n    return main(value)\n', '  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 379, in main\n    asyncio.run(run_training(cli))\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run\n    return runner.run(main)\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run\n    return self._loop.run_until_complete(task)\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 678, in run_until_complete\n    self.run_forever()\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 645, in run_forever\n    self._run_once()\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 1999, in _run_once\n    handle._run()\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/events.py", line 88, in _run\n    self._context.run(self._callback, *self._args)\n', '  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 164, in run_training\n    training_client = service_client.create_training_client_from_state(cli.load_checkpoint_path)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/sync_only.py", line 74, in wrapper\n    f"===== Stack for calling sync from async ===== \\n{traceback.format_stack()}\\n ==========="\n']
+ ===========
+2025-12-15 00:35:17,193 - tinker.lib.sync_only - WARNING - Synchronous method 'ServiceClient.create_lora_training_client()' called from async context. Use 'ServiceClient.create_lora_training_client_async()' instead.
+Calling sync methods from async code can cause deadlocks and performance issues.
+2025-12-15 00:35:17,196 - tinker.lib.sync_only - WARNING - ===== Stack for calling sync from async =====
+['  File "<frozen runpy>", line 198, in _run_module_as_main\n', '  File "<frozen runpy>", line 88, in _run_code\n', '  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 383, in <module>\n    chz.nested_entrypoint(main)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 39, in inner\n    return fn(*args, **kwargs)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 109, in nested_entrypoint\n    return main(value)\n', '  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 379, in main\n    asyncio.run(run_training(cli))\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run\n    return runner.run(main)\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run\n    return self._loop.run_until_complete(task)\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 678, in run_until_complete\n    self.run_forever()\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 645, in run_forever\n    self._run_once()\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 1999, in _run_once\n    handle._run()\n', '  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/events.py", line 88, in _run\n    self._context.run(self._callback, *self._args)\n', '  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 164, in run_training\n    training_client = service_client.create_training_client_from_state(cli.load_checkpoint_path)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/sync_only.py", line 77, in wrapper\n    return func(*args, **kwargs)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/telemetry.py", line 394, in _wrapper\n    return func(*args, **kwargs)\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/public_interfaces/service_client.py", line 251, in create_training_client_from_state\n    training_client = self.create_lora_training_client(\n', '  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/sync_only.py", line 74, in wrapper\n    f"===== Stack for calling sync from async ===== \\n{traceback.format_stack()}\\n ==========="\n']
+ ===========
+2025-12-15 00:36:03,142 - tinker.lib.public_interfaces.service_client - INFO - TrainingClient initialized for model ab3946ff-65ff-5a06-938d-657efefcf264:train:0
+2025-12-15 00:36:13,680 - __main__ - INFO - Loaded checkpoint: tinker://93aa6903-4d94-5f18-9eae-11a0b1e564f9:train:0/weights/final
+2025-12-15 00:36:13,692 - __main__ - INFO - Viz dashboard: http://localhost:3001/live/2cd43d93
+Traceback (most recent call last):
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 645, in run_forever
+    self._run_once()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 1999, in _run_once
+    handle._run()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 207, in run_training
+    sampling_path = training_client.save_weights_for_sampler(name=f"{step:06d}").result().path
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/public_interfaces/api_future.py", line 127, in result
+    return self._future.result(timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/concurrent/futures/_base.py", line 451, in result
+    self._condition.wait(timeout)
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/threading.py", line 355, in wait
+    waiter.acquire()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 157, in _on_sigint
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 383, in <module>
+    chz.nested_entrypoint(main)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 39, in inner
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 109, in nested_entrypoint
+    return main(value)
+           ^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 379, in main
+    asyncio.run(run_training(cli))
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 678, in run_until_complete
+    self.run_forever()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 651, in run_forever
+    events._set_running_loop(None)
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 157, in _on_sigint
+    raise KeyboardInterrupt()
+KeyboardInterrupt

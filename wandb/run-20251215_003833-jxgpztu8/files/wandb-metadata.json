@@ -1,0 +1,40 @@
+{
+  "os": "macOS-15.6.1-arm64-arm-64bit",
+  "python": "CPython 3.12.10",
+  "startedAt": "2025-12-15T08:38:33.412947Z",
+  "args": [
+    "max_steps=50",
+    "max_shards=50",
+    "load_checkpoint_path=tinker://93aa6903-4d94-5f18-9eae-11a0b1e564f9:train:0/weights/final"
+  ],
+  "program": "-m geospot.train",
+  "git": {
+    "remote": "https://github.com/sdan/geospot-vlm.git",
+    "commit": "2b8a0e34dcfc2dabb4d6360ce5f1adaede777d13"
+  },
+  "email": "git@sdan.cc",
+  "root": "/Users/sdan/Developer/geospot-vlm",
+  "host": "sdan",
+  "executable": "/Users/sdan/Developer/geospot-vlm/.venv/bin/python3",
+  "cpu_count": 10,
+  "cpu_count_logical": 10,
+  "disk": {
+    "/": {
+      "total": "1995218165760",
+      "used": "1879043346432"
+    }
+  },
+  "memory": {
+    "total": "68719476736"
+  },
+  "apple": {
+    "name": "Apple M1 Max",
+    "ecpuCores": 2,
+    "pcpuCores": 8,
+    "gpuCores": 32,
+    "memoryGb": 64,
+    "swapTotalBytes": "12884901888",
+    "ramTotalBytes": "68719476736"
+  },
+  "writerId": "s0eby2sxaaetmnxrbaoagm8m2p68234c"
+}

@@ -1,0 +1,88 @@
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_setup.py:_flush():80] Current SDK version is 0.23.1
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_setup.py:_flush():80] Configure stats pid to 79634
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_setup.py:_flush():80] Loading settings from /Users/sdan/.config/wandb/settings
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_setup.py:_flush():80] Loading settings from /Users/sdan/Developer/geospot-vlm/wandb/settings
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_setup.py:_flush():80] Loading settings from environment variables
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_init.py:setup_run_log_directory():714] Logging user logs to /Users/sdan/Developer/geospot-vlm/wandb/run-20251215_003512-73wjc568/logs/debug.log
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_init.py:setup_run_log_directory():715] Logging internal logs to /Users/sdan/Developer/geospot-vlm/wandb/run-20251215_003512-73wjc568/logs/debug-internal.log
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_init.py:init():841] calling init triggers
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_init.py:init():846] wandb.init called with sweep_config: {}
+config: {'model_name': 'Qwen/Qwen3-VL-235B-A22B-Instruct', 'batch_size': 128, 'group_size': 16, 'learning_rate': 4e-05, 'coord_tau_start': 2000.0, 'coord_tau_end': 25.0, 'use_tau_schedule': True, 'coord_reward_kind': 'exp', 'coord_weight': 0.7, 'geocell_weight': 0.3, 'geohash_precision': 5, 'max_tokens': 256, '_wandb': {}}
+2025-12-15 00:35:12,534 INFO    MainThread:79634 [wandb_init.py:init():889] starting backend
+2025-12-15 00:35:12,869 INFO    MainThread:79634 [wandb_init.py:init():892] sending inform_init request
+2025-12-15 00:35:12,901 INFO    MainThread:79634 [wandb_init.py:init():900] backend started and connected
+2025-12-15 00:35:12,903 INFO    MainThread:79634 [wandb_init.py:init():970] updated telemetry
+2025-12-15 00:35:12,919 INFO    MainThread:79634 [wandb_init.py:init():994] communicating run to backend with 90.0 second timeout
+2025-12-15 00:35:13,476 INFO    MainThread:79634 [wandb_init.py:init():1041] starting run threads in backend
+2025-12-15 00:35:13,533 INFO    MainThread:79634 [wandb_run.py:_console_start():2521] atexit reg
+2025-12-15 00:35:13,533 INFO    MainThread:79634 [wandb_run.py:_redirect():2369] redirect: wrap_raw
+2025-12-15 00:35:13,533 INFO    MainThread:79634 [wandb_run.py:_redirect():2438] Wrapping output streams.
+2025-12-15 00:35:13,533 INFO    MainThread:79634 [wandb_run.py:_redirect():2461] Redirects installed.
+2025-12-15 00:35:13,539 INFO    MainThread:79634 [wandb_init.py:init():1081] run started, returning control to user process
+2025-12-15 00:36:42,274 INFO    wandb-AsyncioManager-main:79634 [service_client.py:_forward_responses():80] Reached EOF.
+2025-12-15 00:36:42,274 INFO    wandb-AsyncioManager-main:79634 [mailbox.py:close():137] Closing mailbox, abandoning 1 handles.
+2025-12-15 00:36:42,404 ERROR   wandb-AsyncioManager-main:79634 [asyncio_manager.py:fn_wrap_exceptions():183] Uncaught exception in run_soon callback.
+Traceback (most recent call last):
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/asyncio_manager.py", line 181, in fn_wrap_exceptions
+    await fn()
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 38, in publish
+    await self._send_server_request(request)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 64, in _send_server_request
+    await self._writer.drain()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 392, in drain
+    await self._protocol._drain_helper()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 166, in _drain_helper
+    raise ConnectionResetError('Connection lost')
+ConnectionResetError: Connection lost
+2025-12-15 00:36:42,409 ERROR   wandb-AsyncioManager-main:79634 [asyncio_manager.py:fn_wrap_exceptions():183] Uncaught exception in run_soon callback.
+Traceback (most recent call last):
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/asyncio_manager.py", line 181, in fn_wrap_exceptions
+    await fn()
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 38, in publish
+    await self._send_server_request(request)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 64, in _send_server_request
+    await self._writer.drain()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 392, in drain
+    await self._protocol._drain_helper()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 166, in _drain_helper
+    raise ConnectionResetError('Connection lost')
+ConnectionResetError: Connection lost
+2025-12-15 00:36:42,410 ERROR   wandb-AsyncioManager-main:79634 [asyncio_manager.py:fn_wrap_exceptions():183] Uncaught exception in run_soon callback.
+Traceback (most recent call last):
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/asyncio_manager.py", line 181, in fn_wrap_exceptions
+    await fn()
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 38, in publish
+    await self._send_server_request(request)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 64, in _send_server_request
+    await self._writer.drain()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 392, in drain
+    await self._protocol._drain_helper()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 166, in _drain_helper
+    raise ConnectionResetError('Connection lost')
+ConnectionResetError: Connection lost
+2025-12-15 00:36:42,410 ERROR   wandb-AsyncioManager-main:79634 [asyncio_manager.py:fn_wrap_exceptions():183] Uncaught exception in run_soon callback.
+Traceback (most recent call last):
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/asyncio_manager.py", line 181, in fn_wrap_exceptions
+    await fn()
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 38, in publish
+    await self._send_server_request(request)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 64, in _send_server_request
+    await self._writer.drain()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 392, in drain
+    await self._protocol._drain_helper()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 166, in _drain_helper
+    raise ConnectionResetError('Connection lost')
+ConnectionResetError: Connection lost
+2025-12-15 00:36:42,410 ERROR   wandb-AsyncioManager-main:79634 [asyncio_manager.py:fn_wrap_exceptions():183] Uncaught exception in run_soon callback.
+Traceback (most recent call last):
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/asyncio_manager.py", line 181, in fn_wrap_exceptions
+    await fn()
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 38, in publish
+    await self._send_server_request(request)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/wandb/sdk/lib/service/service_client.py", line 64, in _send_server_request
+    await self._writer.drain()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 392, in drain
+    await self._protocol._drain_helper()
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/streams.py", line 166, in _drain_helper
+    raise ConnectionResetError('Connection lost')
+ConnectionResetError: Connection lost

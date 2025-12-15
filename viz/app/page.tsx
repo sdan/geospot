@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import Dashboard from "../components/Dashboard";
 import { Sidebar } from "../components/ui/sidebar";
 import { Button } from "../components/ui/button";
@@ -16,21 +15,9 @@ import {
   TableHead,
   TableCell,
 } from "../components/ui/table";
+import type { Run } from "@/lib/db";
 
-// Dynamic imports for map components (SSR disabled due to window dependency)
-// const GeoGuessingRLViz = dynamic(
-//   () => import("../components/GeoGuessingRLViz"),
-//   { ssr: false }
-// );
-// const GeoRewardMap = dynamic(() => import("../components/GeoRewardMap"), {
-//   ssr: false,
-// });
-// const GeoPolicyPrediction = dynamic(
-//   () => import("../components/GeoPolicyPrediction"),
-//   { ssr: false }
-// );
-
-// ============ FAKE DATA ============
+// ============ FAKE DATA (for demo pages) ============
 
 const FAKE_API_KEYS = [
   { id: "113434415614394368", createdBy: "user@example.com", dateCreated: "N/A", expires: "N/A" },
@@ -47,18 +34,47 @@ const FAKE_CHECKPOINTS = [
   { id: "training_weights/000041", type: "training", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/training_weights/000041", size: "2.1 GB", visibility: "Private", created: "2 days ago" },
 ];
 
-const FAKE_TRAINING_RUNS = [
-  { id: "run_geospot_001", model: "Qwen3-VL-30B-A3B", status: "running", reward: "0.847", steps: "12,450", created: "2 hours ago" },
-  { id: "run_geospot_002", model: "Qwen3-VL-30B-A3B", status: "completed", reward: "0.823", steps: "50,000", created: "1 day ago" },
-  { id: "run_geospot_003", model: "Llama-3.1-8B-Instruct", status: "failed", reward: "0.412", steps: "8,234", created: "2 days ago" },
-  { id: "run_baseline_001", model: "Qwen3-4B-Instruct", status: "completed", reward: "0.654", steps: "25,000", created: "3 days ago" },
-];
-
 type NavItem = "api-keys" | "training-runs" | "checkpoints" | "usage" | "billing" | "docs";
+
+interface TrainingRun {
+  id: string;
+  name: string;
+  type: string;
+  started_at: string;
+  config: string;
+  // Computed fields for display
+  status?: "running" | "completed" | "failed";
+  latestReward?: number;
+  latestStep?: number;
+}
 
 export default function Page() {
   const [activeNav, setActiveNav] = useState<NavItem>("usage");
   const [checkpointPage, setCheckpointPage] = useState(1);
+  const [runs, setRuns] = useState<TrainingRun[]>([]);
+  const [loadingRuns, setLoadingRuns] = useState(false);
+
+  // Fetch real runs from API
+  useEffect(() => {
+    if (activeNav === "training-runs") {
+      setLoadingRuns(true);
+      fetch("/api/runs")
+        .then((r) => r.json())
+        .then((data: Run[]) => {
+          const transformed = data.map((run) => ({
+            id: run.id,
+            name: run.name,
+            type: run.type,
+            started_at: run.started_at,
+            config: run.config,
+            status: "running" as const, // Assume running for now
+          }));
+          setRuns(transformed);
+        })
+        .catch(() => {})
+        .finally(() => setLoadingRuns(false));
+    }
+  }, [activeNav]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -116,50 +132,72 @@ export default function Page() {
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h1 className="text-xl font-semibold">Training runs</h1>
-              <Button variant="primary">New training run</Button>
+              <Button variant="primary" className="text-white">New training run</Button>
             </div>
 
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
-                  <TableHead>MODEL</TableHead>
+                  <TableHead>NAME</TableHead>
+                  <TableHead>TYPE</TableHead>
                   <TableHead>STATUS</TableHead>
-                  <TableHead>REWARD</TableHead>
-                  <TableHead>STEPS</TableHead>
-                  <TableHead>CREATED</TableHead>
+                  <TableHead>STARTED</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {FAKE_TRAINING_RUNS.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell className="font-mono text-sm">
-                      <Link
-                        href={`/training-run/${encodeURIComponent(run.id)}`}
-                        className="hover:underline text-blue-600"
-                      >
-                        {run.id}
-                      </Link>
+                {loadingRuns ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      Loading runs...
                     </TableCell>
-                    <TableCell>{run.model}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          run.status === "completed"
-                            ? "green"
-                            : run.status === "running"
-                              ? "blue"
-                              : "destructive"
-                        }
-                      >
-                        {run.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono">{run.reward}</TableCell>
-                    <TableCell className="font-mono">{run.steps}</TableCell>
-                    <TableCell className="text-muted-foreground">{run.created}</TableCell>
                   </TableRow>
-                ))}
+                ) : runs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      No training runs yet. Start a training run to see it here.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  runs.map((run) => {
+                    const config = run.config ? JSON.parse(run.config) : {};
+                    return (
+                      <TableRow key={run.id}>
+                        <TableCell className="font-mono text-sm">
+                          <Link
+                            href={`/training-run/${encodeURIComponent(run.id)}`}
+                            className="hover:underline text-blue-600"
+                          >
+                            {run.id}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{run.name}</div>
+                            {config.model_name && (
+                              <div className="text-xs text-muted-foreground">
+                                {config.model_name}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="uppercase">
+                            {run.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="blue">running</Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {run.started_at
+                            ? new Date(run.started_at).toLocaleString()
+                            : "N/A"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
               </TableBody>
             </Table>
           </div>
