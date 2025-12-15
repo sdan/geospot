@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { Map, Marker, Overlay } from "pigeon-maps";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const LOCATIONS = [
   { lat: 23.274160, lng: 79.986495, city: "Panagar", country: "India" },
@@ -57,64 +59,80 @@ export default function GeoRewardMap() {
   }, [locIdx]);
 
   return (
-    <div className="geo-reward-map">
-      <div className="geo-reward-map__label">Geodesic Reward Landscape</div>
+    <Card className="max-w-4xl mx-auto">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-center">Geodesic Reward Landscape</CardTitle>
+      </CardHeader>
 
-      <div className="geo-reward-map__map">
-        <Map
-          center={[loc.lat, loc.lng]}
-          zoom={5}
-          height={400}
-        >
-          {/* Reward contour circles */}
-          {[200, 150, 100, 50].map((size, i) => (
-            <Overlay key={i} anchor={[loc.lat, loc.lng]} offset={[size/2, size/2]}>
-              <div style={{
-                width: size,
-                height: size,
-                borderRadius: "50%",
-                border: `2px solid ${KERNELS[i]?.color || "#ccc"}`,
-                backgroundColor: `${KERNELS[i]?.color || "#ccc"}22`,
-              }} />
-            </Overlay>
-          ))}
-          <Marker anchor={[loc.lat, loc.lng]} color="#ff3b30" />
-        </Map>
-      </div>
-
-      <div className="geo-reward-map__kernels">
-        <div className="geo-reward-map__kernels-header">
-          <div className="geo-reward-map__kernels-title">Multi-Scale Kernel Breakdown</div>
-          <button
-            className="geo-reward-map__stage-btn"
-            onClick={() => setStageIdx((s) => (s + 1) % STAGES.length)}
+      <CardContent className="space-y-6">
+        {/* Map */}
+        <div className="rounded-lg overflow-hidden border border-border h-[400px]">
+          <Map
+            center={[loc.lat, loc.lng]}
+            zoom={5}
+            height={400}
           >
-            Stage: {stage.name}
-          </button>
+            {/* Reward contour circles */}
+            {[200, 150, 100, 50].map((size, i) => (
+              <Overlay key={i} anchor={[loc.lat, loc.lng]} offset={[size/2, size/2]}>
+                <div style={{
+                  width: size,
+                  height: size,
+                  borderRadius: "50%",
+                  border: `2px solid ${KERNELS[i]?.color || "#ccc"}`,
+                  backgroundColor: `${KERNELS[i]?.color || "#ccc"}22`,
+                }} />
+              </Overlay>
+            ))}
+            <Marker anchor={[loc.lat, loc.lng]} color="#ff3b30" />
+          </Map>
         </div>
 
-        <div className="geo-reward-map__info">
-          <span>Target: <strong>{loc.city}, {loc.country}</strong></span>
-          <span style={{ marginLeft: 24 }}>Distance: <strong>{distance.toFixed(0)} km</strong></span>
-          <span style={{ marginLeft: 24 }}>Reward: <strong style={{ color: total > 0.5 ? "#34c759" : "#ff3b30" }}>{total.toFixed(4)}</strong></span>
-        </div>
+        {/* Kernel breakdown */}
+        <div className="bg-muted rounded-lg p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold text-sm">Multi-Scale Kernel Breakdown</h3>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setStageIdx((s) => (s + 1) % STAGES.length)}
+            >
+              Stage: {stage.name}
+            </Button>
+          </div>
 
-        {KERNELS.map((k, i) => {
-          const raw = kernelReward(distance, k.scale);
-          return (
-            <div key={k.name} className="geo-reward-map__kernel-level">
-              <div className="geo-reward-map__kernel-name">{k.name}</div>
-              <div className="geo-reward-map__bar-bg">
-                <div
-                  className="geo-reward-map__kernel-bar"
-                  style={{ width: `${Math.max(raw * 100, 2)}%`, background: k.color }}
-                />
+          <div className="flex gap-6 mb-4 pb-4 border-b border-border font-mono text-sm">
+            <span>Target: <strong>{loc.city}, {loc.country}</strong></span>
+            <span>Distance: <strong>{distance.toFixed(0)} km</strong></span>
+            <span>
+              Reward:{" "}
+              <strong style={{ color: total > 0.5 ? "#34c759" : "#ff3b30" }}>
+                {total.toFixed(4)}
+              </strong>
+            </span>
+          </div>
+
+          {KERNELS.map((k, i) => {
+            const raw = kernelReward(distance, k.scale);
+            return (
+              <div key={k.name} className="flex items-center gap-3 mb-2">
+                <span className="font-mono text-xs text-muted-foreground w-[70px] shrink-0">
+                  {k.name}
+                </span>
+                <div className="flex-1 h-2 bg-foreground/[0.06] rounded overflow-hidden">
+                  <div
+                    className="h-full rounded transition-all duration-300"
+                    style={{ width: `${Math.max(raw * 100, 2)}%`, background: k.color }}
+                  />
+                </div>
+                <span className="font-mono text-xs text-muted-foreground w-[50px] text-right shrink-0">
+                  {raw.toFixed(3)}
+                </span>
               </div>
-              <div className="geo-reward-map__kernel-value">{raw.toFixed(3)}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

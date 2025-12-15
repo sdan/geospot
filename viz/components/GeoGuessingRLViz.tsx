@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 
 // Sample images from OSv5M with geolocation metadata
 const IMAGES = [
@@ -78,7 +79,7 @@ function tokenize(city: string, region: string, country: string, lat: number, ln
 }
 
 type Props = {
-  imagePath?: string; // Base path for images, default: "/osv5m_samples"
+  imagePath?: string;
 };
 
 export default function GeoGuessingRLViz({ imagePath = "/osv5m_samples" }: Props) {
@@ -122,87 +123,110 @@ export default function GeoGuessingRLViz({ imagePath = "/osv5m_samples" }: Props
   }, []);
 
   return (
-    <div className="grpo-viz">
-      <div className="grpo-viz__title">Learning Geolocation from Graded Distance Rewards</div>
+    <div className="bg-muted rounded-xl p-8 max-w-3xl mx-auto">
+      <div className="text-lg font-medium text-foreground/80 text-center mb-6 tracking-tight">
+        Learning Geolocation from Graded Distance Rewards
+      </div>
 
-      <div className="grpo-viz__demo">
+      <div className="grid grid-cols-[1fr_320px] gap-6 items-start mb-6">
         {/* Image */}
         <div>
-          <div className="grpo-viz__image-container" onClick={restart}>
+          <div
+            className="relative w-full aspect-[16/10] bg-card border border-border rounded-lg overflow-hidden cursor-pointer"
+            onClick={restart}
+          >
             <img
               src={`${imagePath}/${img.id}.jpg`}
               alt={`${img.city}, ${img.country}`}
-              className="grpo-viz__image"
+              className="w-full h-full object-cover animate-fade-in"
             />
           </div>
-          <div className="grpo-viz__caption">
+          <div className="font-mono text-[0.7rem] text-muted-foreground text-center mt-2 px-2 py-1.5 bg-foreground/[0.03] rounded">
             {img.city}, {img.region}, {img.country} · {img.lat.toFixed(4)}°, {img.lng.toFixed(4)}°
           </div>
         </div>
 
         {/* Panel */}
-        <div className="grpo-viz__panel">
-          <div className="grpo-viz__stage" onClick={() => setStageIdx((s) => (s + 1) % STAGES.length)}>
-            Stage: {stage.name}
-          </div>
-
-          <div className="grpo-viz__header">
-            <div className="grpo-viz__metric">
-              <div className="grpo-viz__label">Δ Distance</div>
-              <div className="grpo-viz__distance">{distance.toFixed(0)}km</div>
+        <Card>
+          <CardContent className="p-4 flex flex-col gap-3">
+            <div
+              className="font-mono text-[0.6rem] text-muted-foreground text-right cursor-pointer select-none hover:text-foreground transition-colors"
+              onClick={() => setStageIdx((s) => (s + 1) % STAGES.length)}
+            >
+              Stage: {stage.name}
             </div>
-            <div className="grpo-viz__metric">
-              <div className="grpo-viz__label">Reward</div>
-              <div className="grpo-viz__reward" style={{ color: total > 0.5 ? "#34c759" : "#ff3b30" }}>
-                {total.toFixed(4)}
-              </div>
-            </div>
-          </div>
 
-          {/* Kernel bars */}
-          {KERNELS.map((k, i) => {
-            const raw = kernelReward(distance, k.scale);
-            return (
-              <div key={k.name} className="grpo-viz__kernel">
-                <div className="grpo-viz__kernel-label">{k.name}</div>
-                <div className="grpo-viz__bar-bg">
-                  <div
-                    className="grpo-viz__bar"
-                    style={{ width: `${Math.max(raw * 100, 1)}%`, backgroundColor: k.color }}
-                  />
+            <div className="flex justify-around gap-6 pb-4 border-b border-border">
+              <div className="flex flex-col items-center gap-1">
+                <div className="font-mono text-[0.65rem] text-muted-foreground uppercase tracking-wider">
+                  Δ Distance
                 </div>
-                <div className="grpo-viz__value">
-                  {raw.toFixed(3)}
-                  {stage.weights[i] > 0 && (
-                    <span className="grpo-viz__weighted"> · {rewards[i].toFixed(3)}</span>
-                  )}
+                <div className="font-mono text-xl font-semibold">
+                  {distance.toFixed(0)}km
                 </div>
               </div>
-            );
-          })}
-
-          {/* Token output */}
-          <div className="grpo-viz__output">
-            <div className="grpo-viz__output-label">Model Output</div>
-            <div className="grpo-viz__output-text">
-              {tokens.slice(0, tokenCount).map((t, i) => (
-                <span
-                  key={i}
-                  className="grpo-viz__token"
-                  style={{
-                    backgroundColor: t.color || "transparent",
-                    whiteSpace: t.text === "\n" ? "pre" : "normal",
-                  }}
+              <div className="flex flex-col items-center gap-1">
+                <div className="font-mono text-[0.65rem] text-muted-foreground uppercase tracking-wider">
+                  Reward
+                </div>
+                <div
+                  className="font-mono text-xl font-semibold"
+                  style={{ color: total > 0.5 ? "#34c759" : "#ff3b30" }}
                 >
-                  {t.text}
-                </span>
-              ))}
+                  {total.toFixed(4)}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+
+            {/* Kernel bars */}
+            {KERNELS.map((k, i) => {
+              const raw = kernelReward(distance, k.scale);
+              return (
+                <div key={k.name} className="grid grid-cols-[70px_1fr_90px] items-center gap-2">
+                  <span className="font-mono text-[0.7rem] text-muted-foreground text-right">
+                    {k.name}
+                  </span>
+                  <div className="h-1.5 bg-foreground/[0.06] rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.max(raw * 100, 1)}%`, backgroundColor: k.color }}
+                    />
+                  </div>
+                  <span className="font-mono text-[0.7rem] text-foreground">
+                    {raw.toFixed(3)}
+                    {stage.weights[i] > 0 && (
+                      <span className="text-muted-foreground text-[0.65rem]"> · {rewards[i].toFixed(3)}</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+
+            {/* Token output */}
+            <div className="mt-4 pt-4 border-t border-border">
+              <div className="font-mono text-[0.65rem] text-muted-foreground uppercase tracking-wider mb-2">
+                Model Output
+              </div>
+              <div className="font-mono text-[0.75rem] leading-relaxed bg-foreground/[0.02] p-3 rounded-md border border-border min-h-[100px]">
+                {tokens.slice(0, tokenCount).map((t, i) => (
+                  <span
+                    key={i}
+                    className="inline-block px-1 py-0.5 rounded-sm"
+                    style={{
+                      backgroundColor: t.color || "transparent",
+                      whiteSpace: t.text === "\n" ? "pre" : "normal",
+                    }}
+                  >
+                    {t.text}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grpo-viz__insight">
+      <div className="text-center text-sm text-muted-foreground pt-4 border-t border-border">
         Kernel rewards: exp(-distance / scale) · Click image to advance
       </div>
     </div>

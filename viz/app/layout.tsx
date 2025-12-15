@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import "../styles/viz.css";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "GeoSpot Viz",
@@ -28,7 +28,7 @@ export default function RootLayout({
           </>
         )}
       </head>
-      <body style={{ margin: 0, background: "#fff" }}>{children}</body>
+      <body className="min-h-screen bg-background antialiased">{children}</body>
     </html>
   );
 }

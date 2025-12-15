@@ -1,38 +1,332 @@
 "use client";
 
-import GeoGuessingRLViz from "../components/GeoGuessingRLViz";
-import GeoRewardMap from "../components/GeoRewardMap";
+import { useState } from "react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import Dashboard from "../components/Dashboard";
+import { Sidebar } from "../components/ui/sidebar";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Pagination } from "../components/ui/pagination";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "../components/ui/table";
+
+// Dynamic imports for map components (SSR disabled due to window dependency)
+// const GeoGuessingRLViz = dynamic(
+//   () => import("../components/GeoGuessingRLViz"),
+//   { ssr: false }
+// );
+// const GeoRewardMap = dynamic(() => import("../components/GeoRewardMap"), {
+//   ssr: false,
+// });
+// const GeoPolicyPrediction = dynamic(
+//   () => import("../components/GeoPolicyPrediction"),
+//   { ssr: false }
+// );
+
+// ============ FAKE DATA ============
+
+const FAKE_API_KEYS = [
+  { id: "113434415614394368", createdBy: "sdan@ocf.berkeley.edu", dateCreated: "N/A", expires: "N/A" },
+  { id: "223441873387336492", createdBy: "sdan@ocf.berkeley.edu", dateCreated: "N/A", expires: "N/A" },
+  { id: "601744242086458163", createdBy: "sdan@ocf.berkeley.edu", dateCreated: "N/A", expires: "N/A" },
+];
+
+const FAKE_CHECKPOINTS = [
+  { id: "sampler_weights/000058", type: "sampler", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/sampler_weights/000058", size: "1.8 GB", visibility: "Private", created: "12 hours ago" },
+  { id: "sampler_weights/000057", type: "sampler", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/sampler_weights/000057", size: "1.8 GB", visibility: "Private", created: "12 hours ago" },
+  { id: "sampler_weights/000056", type: "sampler", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/sampler_weights/000056", size: "1.8 GB", visibility: "Private", created: "13 hours ago" },
+  { id: "training_weights/000042", type: "training", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/training_weights/000042", size: "2.1 GB", visibility: "Private", created: "1 day ago" },
+  { id: "sampler_weights/000055", type: "sampler", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/sampler_weights/000055", size: "1.8 GB", visibility: "Private", created: "1 day ago" },
+  { id: "training_weights/000041", type: "training", path: "tinker://50a4863a-c982-5c1e-9db3-9c467af41c81:train:0/training_weights/000041", size: "2.1 GB", visibility: "Private", created: "2 days ago" },
+];
+
+const FAKE_TRAINING_RUNS = [
+  { id: "run_geospot_001", model: "Qwen3-VL-30B-A3B", status: "running", reward: "0.847", steps: "12,450", created: "2 hours ago" },
+  { id: "run_geospot_002", model: "Qwen3-VL-30B-A3B", status: "completed", reward: "0.823", steps: "50,000", created: "1 day ago" },
+  { id: "run_geospot_003", model: "Llama-3.1-8B-Instruct", status: "failed", reward: "0.412", steps: "8,234", created: "2 days ago" },
+  { id: "run_baseline_001", model: "Qwen3-4B-Instruct", status: "completed", reward: "0.654", steps: "25,000", created: "3 days ago" },
+];
+
+type NavItem = "api-keys" | "training-runs" | "checkpoints" | "usage" | "billing" | "docs";
 
 export default function Page() {
+  const [activeNav, setActiveNav] = useState<NavItem>("usage");
+  const [checkpointPage, setCheckpointPage] = useState(1);
+
   return (
-    <div style={{
-      maxWidth: 1000,
-      margin: "0 auto",
-      padding: "40px 24px",
-      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-    }}>
-      <header style={{ marginBottom: 48, textAlign: "center" }}>
-        <h1 style={{ fontSize: "2rem", fontWeight: 600, marginBottom: 8 }}>
-          GeoSpot VLM Viz
-        </h1>
-        <p style={{ color: "#86868b", fontSize: "1rem" }}>
-          Geolocation RL visualization
-        </p>
-      </header>
+    <div className="flex min-h-screen bg-background">
+      {/* Sidebar */}
+      <Sidebar activeItem={activeNav} onNavigate={(item) => setActiveNav(item as NavItem)} />
 
-      <section style={{ marginBottom: 64 }}>
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 500, marginBottom: 16 }}>
-          1. GeoGuessingRLViz
-        </h2>
-        <GeoGuessingRLViz imagePath="/osv5m_samples" />
-      </section>
+      {/* Main Content */}
+      <main className="flex-1 overflow-auto">
+        {activeNav === "api-keys" && (
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-xl font-semibold">API keys</h1>
+              <Button variant="default">New key</Button>
+            </div>
 
-      <section style={{ marginBottom: 64 }}>
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 500, marginBottom: 16 }}>
-          2. GeoRewardMap
-        </h2>
-        <GeoRewardMap />
-      </section>
+            <div className="mb-4">
+              <Pagination
+                currentPage={1}
+                totalPages={1}
+                totalItems={FAKE_API_KEYS.length}
+                itemsPerPage={20}
+                onPageChange={() => {}}
+              />
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>NAME</TableHead>
+                  <TableHead>CREATED BY</TableHead>
+                  <TableHead>DATE CREATED</TableHead>
+                  <TableHead>EXPIRES</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {FAKE_API_KEYS.map((key) => (
+                  <TableRow key={key.id}>
+                    <TableCell>
+                      <div>
+                        <div className="font-mono text-sm">{key.id}</div>
+                        <div className="text-xs text-muted-foreground">Generated by Tinker Console</div>
+                      </div>
+                    </TableCell>
+                    <TableCell>{key.createdBy}</TableCell>
+                    <TableCell>{key.dateCreated}</TableCell>
+                    <TableCell>{key.expires}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {activeNav === "training-runs" && (
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-xl font-semibold">Training runs</h1>
+              <Button variant="primary">New training run</Button>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>MODEL</TableHead>
+                  <TableHead>STATUS</TableHead>
+                  <TableHead>REWARD</TableHead>
+                  <TableHead>STEPS</TableHead>
+                  <TableHead>CREATED</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {FAKE_TRAINING_RUNS.map((run) => (
+                  <TableRow key={run.id}>
+                    <TableCell className="font-mono text-sm">
+                      <Link
+                        href={`/training-run/${encodeURIComponent(run.id)}`}
+                        className="hover:underline text-blue-600"
+                      >
+                        {run.id}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{run.model}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          run.status === "completed"
+                            ? "green"
+                            : run.status === "running"
+                              ? "blue"
+                              : "destructive"
+                        }
+                      >
+                        {run.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono">{run.reward}</TableCell>
+                    <TableCell className="font-mono">{run.steps}</TableCell>
+                    <TableCell className="text-muted-foreground">{run.created}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {activeNav === "checkpoints" && (
+          <div className="p-6">
+            <h1 className="text-xl font-semibold mb-6">Checkpoints</h1>
+
+            <div className="mb-4">
+              <Pagination
+                currentPage={checkpointPage}
+                totalPages={1945}
+                totalItems={38895}
+                itemsPerPage={20}
+                onPageChange={setCheckpointPage}
+              />
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>TYPE</TableHead>
+                  <TableHead>PATH</TableHead>
+                  <TableHead>SIZE</TableHead>
+                  <TableHead>VISIBILITY</TableHead>
+                  <TableHead>CREATED</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {FAKE_CHECKPOINTS.map((cp) => (
+                  <TableRow key={cp.id}>
+                    <TableCell className="font-mono text-sm">{cp.id}</TableCell>
+                    <TableCell>
+                      <Badge variant="sampler">{cp.type}</Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[300px] truncate">
+                      {cp.path}
+                    </TableCell>
+                    <TableCell>{cp.size}</TableCell>
+                    <TableCell>
+                      <Badge variant="private">{cp.visibility}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{cp.created}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {activeNav === "usage" && <Dashboard />}
+
+        {activeNav === "billing" && (
+          <div className="p-6 space-y-6">
+            <h1 className="text-xl font-semibold mb-6">Billing</h1>
+            
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-6">
+                {/* Balance Card */}
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-none p-6">
+                  <h3 className="text-sm font-medium text-muted-foreground uppercase mb-2">Current Balance</h3>
+                  <div className="flex items-end gap-2 mb-4">
+                    <span className="text-4xl font-normal">$1,240.50</span>
+                    <span className="text-sm text-muted-foreground mb-1">USD</span>
+                  </div>
+                  <Button variant="primary" className="w-full sm:w-auto">
+                    Add to balance
+                  </Button>
+                </div>
+
+                {/* Monthly Spend */}
+                 <div className="rounded-lg border border-border bg-card text-card-foreground shadow-none p-6">
+                  <h3 className="text-sm font-medium text-muted-foreground uppercase mb-2">Month to date</h3>
+                  <div className="flex items-end gap-2 mb-1">
+                    <span className="text-2xl font-normal">$41.07</span>
+                  </div>
+                   <p className="text-xs text-muted-foreground">Forecast: $120.00</p>
+                </div>
+              </div>
+
+              {/* Payment Methods */}
+              <div className="rounded-lg border border-border bg-card text-card-foreground shadow-none p-6 h-full">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-medium">Payment methods</h3>
+                  <Button variant="default" size="sm">Add payment method</Button>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 border border-border rounded-md bg-muted/20">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-12 bg-white border border-border rounded flex items-center justify-center">
+                         {/* Simple visa-like representation */}
+                         <div className="font-bold text-blue-600 italic text-xs">VISA</div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Visa ending in 4242</p>
+                        <p className="text-xs text-muted-foreground">Expires 12/2028</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline">Default</Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 border border-border rounded-md bg-muted/20">
+                     <div className="flex items-center gap-3">
+                      <div className="h-8 w-12 bg-white border border-border rounded flex items-center justify-center">
+                         <div className="font-bold text-orange-500 text-xs">MC</div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Mastercard ending in 8899</p>
+                        <p className="text-xs text-muted-foreground">Expires 04/2026</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Invoices */}
+            <div className="rounded-lg border border-border bg-card text-card-foreground shadow-none">
+              <div className="p-6 pb-2">
+                <h3 className="text-lg font-medium">Invoices</h3>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>INVOICE ID</TableHead>
+                    <TableHead>DATE</TableHead>
+                    <TableHead>AMOUNT</TableHead>
+                    <TableHead>STATUS</TableHead>
+                    <TableHead className="text-right">ACTION</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[
+                    { id: "INV-2024-001", date: "Dec 01, 2024", amount: "$450.00", status: "Paid" },
+                    { id: "INV-2024-002", date: "Nov 01, 2024", amount: "$320.50", status: "Paid" },
+                    { id: "INV-2024-003", date: "Oct 01, 2024", amount: "$150.00", status: "Paid" },
+                  ].map((inv) => (
+                    <TableRow key={inv.id}>
+                      <TableCell className="font-mono text-sm">{inv.id}</TableCell>
+                      <TableCell>{inv.date}</TableCell>
+                      <TableCell>{inv.amount}</TableCell>
+                      <TableCell>
+                        <Badge variant="green" className="rounded-full px-2">
+                          {inv.status}
+                        </Badge>
+                      </TableCell>
+                       <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" className="h-8">Download</Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+
+        {activeNav === "docs" && (
+          <div className="p-6">
+            <h1 className="text-xl font-semibold mb-6">Documentation</h1>
+            <p className="text-muted-foreground">
+              Visit the <a href="#" className="underline">GeoSpot VLM documentation</a> for guides and API reference.
+            </p>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

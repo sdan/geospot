@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 // Sample candidates
 const SAMPLE_CANDIDATES = [
@@ -33,107 +35,117 @@ export default function GeoPolicyPrediction() {
   }, []);
 
   return (
-    <div className="geo-policy">
-      <div className="geo-policy__header">
-        <div className="geo-policy__title">Policy Re-ranking on Top-K</div>
-        <div className="geo-policy__tabs">
-          <button
-            className={`geo-policy__tab ${mode === "base" ? "geo-policy__tab--active" : ""}`}
-            onClick={() => setMode("base")}
-          >
-            Base
-          </button>
-          <button
-            className={`geo-policy__tab ${mode === "policy" ? "geo-policy__tab--active" : ""}`}
-            onClick={() => setMode("policy")}
-          >
-            Policy
-          </button>
-        </div>
-      </div>
-
-      <div className="geo-policy__grid">
-        <div className="geo-policy__list">
-          <div className="geo-policy__list-header">
-            <span>Rank</span>
-            <span>Location</span>
-            <span>Probability</span>
+    <Card className="max-w-5xl mx-auto">
+      <CardHeader className="pb-4">
+        <div className="flex justify-between items-center">
+          <CardTitle>Policy Re-ranking on Top-K</CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant={mode === "base" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("base")}
+            >
+              Base
+            </Button>
+            <Button
+              variant={mode === "policy" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("policy")}
+            >
+              Policy
+            </Button>
           </div>
-          <div className="geo-policy__rows">
-            {candidates.map((c, i) => {
-              const basePct = c.basePr * 100;
-              const policyPct = c.policyPr * 100;
-              return (
-                <div key={c.id} className="geo-policy__row">
-                  <div className="geo-policy__rank">#{i + 1}</div>
-                  <div className="geo-policy__name">{c.city}, {c.country}</div>
-                  <div className="geo-policy__bars">
-                    <div
-                      className="geo-policy__bar geo-policy__bar--base"
-                      style={{ width: `${basePct}%` }}
-                      title={`Base: ${basePct.toFixed(1)}%`}
-                    />
-                    <div
-                      className="geo-policy__bar geo-policy__bar--policy"
-                      style={{ width: `${policyPct}%` }}
-                      title={`Policy: ${policyPct.toFixed(1)}%`}
-                    />
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        <div className="grid grid-cols-[1.2fr_1fr] gap-6 min-h-[360px]">
+          {/* Candidate list */}
+          <div className="bg-muted border border-border rounded-lg p-4">
+            <div className="grid grid-cols-[50px_1fr_180px] gap-2 px-2 py-1.5 font-mono text-xs text-muted-foreground border-b border-border">
+              <span>Rank</span>
+              <span>Location</span>
+              <span>Probability</span>
+            </div>
+            <div className="flex flex-col gap-2 py-2 max-h-[400px] overflow-y-auto">
+              {candidates.map((c, i) => {
+                const basePct = c.basePr * 100;
+                const policyPct = c.policyPr * 100;
+                return (
+                  <div key={c.id} className="grid grid-cols-[50px_1fr_180px] gap-2 items-center bg-card border border-border rounded-lg p-2">
+                    <div className="font-semibold text-sm">#{i + 1}</div>
+                    <div className="font-mono text-xs text-foreground/80">{c.city}, {c.country}</div>
+                    <div className="flex flex-col gap-1">
+                      <div
+                        className="h-2 rounded bg-foreground/10"
+                        style={{ width: `${basePct}%` }}
+                        title={`Base: ${basePct.toFixed(1)}%`}
+                      />
+                      <div
+                        className="h-2 rounded bg-accent/80"
+                        style={{ width: `${policyPct}%` }}
+                        title={`Policy: ${policyPct.toFixed(1)}%`}
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Map */}
+          <div className="bg-muted border border-border rounded-lg overflow-hidden min-h-[360px]">
+            <MapContainer
+              center={[35, 125]}
+              zoom={3}
+              style={{ height: "100%", width: "100%" }}
+              scrollWheelZoom={false}
+            >
+              <TileLayer
+                attribution='&copy; OpenStreetMap'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              {candidates.map((c, i) => {
+                const pr = mode === "base" ? c.basePr : c.policyPr;
+                return (
+                  <CircleMarker
+                    key={c.id}
+                    center={[c.lat, c.lng]}
+                    radius={8 + pr * 20}
+                    pathOptions={{
+                      color: mode === "base" ? "#424245" : "#0071e3",
+                      fillColor: mode === "base" ? "#86868b" : "#0071e3",
+                      fillOpacity: 0.4 + pr * 0.5,
+                      weight: i === 0 ? 3 : 1,
+                    }}
+                  >
+                    <Popup>
+                      #{i + 1} {c.city}, {c.country}<br />
+                      {mode === "base" ? "Base" : "Policy"}: {(pr * 100).toFixed(1)}%
+                    </Popup>
+                  </CircleMarker>
+                );
+              })}
+            </MapContainer>
           </div>
         </div>
+      </CardContent>
 
-        <div className="geo-policy__map">
-          <MapContainer
-            center={[35, 125]}
-            zoom={3}
-            style={{ height: "100%", width: "100%" }}
-            scrollWheelZoom={false}
-          >
-            <TileLayer
-              attribution='&copy; OpenStreetMap'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            {candidates.map((c, i) => {
-              const pr = mode === "base" ? c.basePr : c.policyPr;
-              return (
-                <CircleMarker
-                  key={c.id}
-                  center={[c.lat, c.lng]}
-                  radius={8 + pr * 20}
-                  pathOptions={{
-                    color: mode === "base" ? "#424245" : "#0071e3",
-                    fillColor: mode === "base" ? "#86868b" : "#0071e3",
-                    fillOpacity: 0.4 + pr * 0.5,
-                    weight: i === 0 ? 3 : 1,
-                  }}
-                >
-                  <Popup>
-                    #{i + 1} {c.city}, {c.country}<br />
-                    {mode === "base" ? "Base" : "Policy"}: {(pr * 100).toFixed(1)}%
-                  </Popup>
-                </CircleMarker>
-              );
-            })}
-          </MapContainer>
-        </div>
-      </div>
-
-      <div className="geo-policy__footer">
-        <div style={{ display: "flex", gap: "16px" }}>
-          <div className="geo-policy__legend">
-            <span className="geo-policy__dot geo-policy__dot--base" />
+      <CardFooter className="flex justify-between items-center pt-4 border-t border-border">
+        <div className="flex gap-4">
+          <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <span className="w-2.5 h-2.5 rounded-full bg-foreground/30" />
             <span>Base π₀</span>
           </div>
-          <div className="geo-policy__legend">
-            <span className="geo-policy__dot geo-policy__dot--policy" />
+          <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <span className="w-2.5 h-2.5 rounded-full bg-accent" />
             <span>Policy πθ</span>
           </div>
         </div>
-        <div className="geo-policy__version">Iteration: {iteration}</div>
-      </div>
-    </div>
+        <div className="font-mono text-xs text-muted-foreground">
+          Iteration: {iteration}
+        </div>
+      </CardFooter>
+    </Card>
   );
 }
