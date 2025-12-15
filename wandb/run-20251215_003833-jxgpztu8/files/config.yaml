@@ -1,0 +1,79 @@
+_wandb:
+    value:
+        cli_version: 0.23.1
+        e:
+            s0eby2sxaaetmnxrbaoagm8m2p68234c:
+                apple:
+                    ecpuCores: 2
+                    gpuCores: 32
+                    memoryGb: 64
+                    name: Apple M1 Max
+                    pcpuCores: 8
+                    ramTotalBytes: "68719476736"
+                    swapTotalBytes: "12884901888"
+                args:
+                    - max_steps=50
+                    - max_shards=50
+                    - load_checkpoint_path=tinker://93aa6903-4d94-5f18-9eae-11a0b1e564f9:train:0/weights/final
+                cpu_count: 10
+                cpu_count_logical: 10
+                disk:
+                    /:
+                        total: "1995218165760"
+                        used: "1879043346432"
+                email: git@sdan.cc
+                executable: /Users/sdan/Developer/geospot-vlm/.venv/bin/python3
+                git:
+                    commit: 2b8a0e34dcfc2dabb4d6360ce5f1adaede777d13
+                    remote: https://github.com/sdan/geospot-vlm.git
+                host: sdan
+                memory:
+                    total: "68719476736"
+                os: macOS-15.6.1-arm64-arm-64bit
+                program: -m geospot.train
+                python: CPython 3.12.10
+                root: /Users/sdan/Developer/geospot-vlm
+                startedAt: "2025-12-15T08:38:33.412947Z"
+                writerId: s0eby2sxaaetmnxrbaoagm8m2p68234c
+        m: []
+        python_version: 3.12.10
+        t:
+            "1":
+                - 1
+                - 49
+                - 51
+            "2":
+                - 1
+                - 11
+                - 49
+                - 51
+            "3":
+                - 16
+            "4": 3.12.10
+            "5": 0.23.1
+            "12": 0.23.1
+            "13": darwin-arm64
+batch_size:
+    value: 128
+coord_reward_kind:
+    value: exp
+coord_tau_end:
+    value: 25
+coord_tau_start:
+    value: 2000
+coord_weight:
+    value: 0.7
+geocell_weight:
+    value: 0.3
+geohash_precision:
+    value: 5
+group_size:
+    value: 16
+learning_rate:
+    value: 4e-05
+max_tokens:
+    value: 256
+model_name:
+    value: Qwen/Qwen3-VL-235B-A22B-Instruct
+use_tau_schedule:
+    value: true

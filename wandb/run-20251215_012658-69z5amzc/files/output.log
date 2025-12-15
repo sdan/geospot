@@ -1,0 +1,76 @@
+Using `use_fast=True` but `torchvision` is not available. Falling back to the slow image processor.
+2025-12-15 01:27:02,816 - tinker.lib.public_interfaces.service_client - INFO - ServiceClient initialized for session 3b46e685-101d-54d4-9cc9-ffa175044a20
+2025-12-15 01:27:59,538 - tinker.lib.public_interfaces.service_client - INFO - TrainingClient initialized for model 3b46e685-101d-54d4-9cc9-ffa175044a20:train:0
+2025-12-15 01:28:02,463 - __main__ - INFO - Loaded checkpoint: tinker://93aa6903-4d94-5f18-9eae-11a0b1e564f9:train:0/weights/final
+2025-12-15 01:28:02,475 - __main__ - INFO - Viz dashboard: http://localhost:3001/live/4afc183d
+2025-12-15 01:29:26,966 - geospot.data.streaming - INFO - Loaded 11088 shards from manifest
+2025-12-15 01:29:26,967 - geospot.data.streaming - INFO - Found 11088 shards
+2025-12-15 01:29:26,972 - geospot.data.streaming - INFO - Using 10 shards
+2025-12-15 01:30:19,933 - __main__ - INFO - Step 0: reward=0.663, dist=402km, tau=2000, datums=4, skipped=0, time=137.5s
+2025-12-15 01:32:31,006 - __main__ - INFO - Step 1: reward=0.698, dist=318km, tau=1913, datums=4, skipped=0, time=131.1s
+2025-12-15 01:34:48,281 - __main__ - INFO - Step 2: reward=0.436, dist=1119km, tau=1831, datums=4, skipped=0, time=137.3s
+2025-12-15 01:37:04,623 - __main__ - INFO - Step 3: reward=0.516, dist=1524km, tau=1751, datums=4, skipped=0, time=136.3s
+2025-12-15 01:39:16,499 - __main__ - INFO - Step 4: reward=0.021, dist=7640km, tau=1675, datums=4, skipped=0, time=131.9s
+2025-12-15 01:41:33,276 - __main__ - INFO - Step 5: reward=0.880, dist=36km, tau=1603, datums=4, skipped=0, time=136.8s
+2025-12-15 01:43:56,862 - __main__ - INFO - Step 6: reward=0.754, dist=154km, tau=1534, datums=4, skipped=0, time=143.6s
+2025-12-15 01:46:35,821 - __main__ - INFO - Step 7: reward=0.650, dist=344km, tau=1467, datums=4, skipped=0, time=158.9s
+2025-12-15 01:48:45,275 - __main__ - INFO - Step 8: reward=0.576, dist=947km, tau=1404, datums=4, skipped=0, time=129.5s
+2025-12-15 01:51:00,060 - __main__ - INFO - Step 9: reward=0.571, dist=514km, tau=1343, datums=4, skipped=0, time=134.8s
+2025-12-15 01:53:09,632 - __main__ - INFO - Step 10: reward=0.322, dist=2176km, tau=1285, datums=4, skipped=0, time=129.6s
+2025-12-15 01:55:17,085 - __main__ - INFO - Step 11: reward=0.786, dist=93km, tau=1229, datums=4, skipped=0, time=127.4s
+2025-12-15 01:57:40,270 - __main__ - INFO - Step 12: reward=0.324, dist=1314km, tau=1176, datums=4, skipped=0, time=143.2s
+2025-12-15 01:59:55,035 - __main__ - INFO - Step 13: reward=0.305, dist=4118km, tau=1125, datums=4, skipped=0, time=134.8s
+2025-12-15 02:02:04,756 - __main__ - INFO - Step 14: reward=0.303, dist=1139km, tau=1076, datums=4, skipped=0, time=129.7s
+2025-12-15 02:04:22,790 - __main__ - INFO - Step 15: reward=0.579, dist=516km, tau=1030, datums=4, skipped=0, time=138.0s
+2025-12-15 02:06:34,816 - __main__ - INFO - Step 16: reward=0.763, dist=84km, tau=985, datums=4, skipped=0, time=132.0s
+2025-12-15 02:08:41,163 - __main__ - INFO - Step 17: reward=0.405, dist=687km, tau=942, datums=4, skipped=0, time=126.3s
+2025-12-15 02:10:52,998 - __main__ - INFO - Step 18: reward=0.437, dist=636km, tau=902, datums=4, skipped=0, time=131.8s
+2025-12-15 02:13:05,847 - __main__ - INFO - Step 19: reward=0.347, dist=2656km, tau=863, datums=4, skipped=0, time=132.8s
+2025-12-15 02:15:22,866 - __main__ - INFO - Step 20: reward=0.728, dist=209km, tau=825, datums=4, skipped=0, time=137.0s
+2025-12-15 02:17:29,629 - __main__ - INFO - Step 21: reward=0.003, dist=4329km, tau=789, datums=4, skipped=0, time=126.8s
+2025-12-15 02:19:56,575 - __main__ - INFO - Step 22: reward=0.629, dist=241km, tau=755, datums=4, skipped=0, time=146.9s
+2025-12-15 02:22:08,119 - __main__ - INFO - Step 23: reward=0.999, dist=1km, tau=723, datums=4, skipped=0, time=131.5s
+2025-12-15 02:24:22,176 - __main__ - INFO - Step 24: reward=0.804, dist=52km, tau=691, datums=4, skipped=0, time=134.1s
+2025-12-15 02:26:32,068 - __main__ - INFO - Step 25: reward=0.228, dist=998km, tau=661, datums=4, skipped=0, time=129.9s
+Traceback (most recent call last):
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 207, in run_training
+    sampling_client = await training_client.save_weights_and_get_sampling_client_async(name=f"{step:06d}")
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/telemetry.py", line 384, in _awrapper
+    return await cast(Callable[..., Awaitable[R]], func)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/public_interfaces/training_client.py", line 829, in save_weights_and_get_sampling_client_async
+    return await self.save_weights_and_get_sampling_client_submit(retry_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/public_interfaces/api_future.py", line 132, in result_async
+    return await asyncio.wrap_future(self._future)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 382, in <module>
+    chz.nested_entrypoint(main)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 39, in inner
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 109, in nested_entrypoint
+    return main(value)
+           ^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 378, in main
+    asyncio.run(run_training(cli))
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt

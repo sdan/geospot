@@ -41,7 +41,7 @@ class CLIConfig:
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geospot-unified"
+    hf_repo: str = "sdan/geomix"
     max_shards: int | None = None
     max_steps: int = 100
 
@@ -89,13 +89,13 @@ async def sample_group(
     group_size: int,
     sampling_params: tinker.SamplingParams,
 ) -> list[tuple[list[int], list[float]]]:
-    """Sample group_size responses in parallel. Returns [(tokens, logprobs), ...]."""
-    futures = [
-        sampling_client.sample_async(prompt=observation, num_samples=1, sampling_params=sampling_params)
-        for _ in range(group_size)
-    ]
-    results = await asyncio.gather(*futures)
-    return [(r.sequences[0].tokens, r.sequences[0].logprobs) for r in results]
+    """Sample group_size responses in single call. Returns [(tokens, logprobs), ...]."""
+    result = await sampling_client.sample_async(
+        prompt=observation,
+        num_samples=group_size,
+        sampling_params=sampling_params,
+    )
+    return [(seq.tokens, seq.logprobs) for seq in result.sequences]
 
 
 async def run_training(cli: CLIConfig):
@@ -191,7 +191,7 @@ async def run_training(cli: CLIConfig):
             "max_steps": cli.max_steps,
         },
     )
-    logger.info(f"Viz dashboard: http://localhost:3001/live/{run_id}")
+    logger.info(f"Viz dashboard: http://localhost:3001/training-run/{run_id}")
 
     # Training loop
     for step in range(cli.max_steps):

@@ -19,3 +19,5 @@ config: {'model_name': 'Qwen/Qwen3-VL-235B-A22B-Instruct', 'batch_size': 128, 'g
 2025-12-15 00:38:34,242 INFO    MainThread:82855 [wandb_run.py:_redirect():2438] Wrapping output streams.
 2025-12-15 00:38:34,243 INFO    MainThread:82855 [wandb_run.py:_redirect():2461] Redirects installed.
 2025-12-15 00:38:34,245 INFO    MainThread:82855 [wandb_init.py:init():1081] run started, returning control to user process
+2025-12-15 01:24:55,282 INFO    wandb-AsyncioManager-main:82855 [service_client.py:_forward_responses():80] Reached EOF.
+2025-12-15 01:24:55,282 INFO    wandb-AsyncioManager-main:82855 [mailbox.py:close():137] Closing mailbox, abandoning 1 handles.

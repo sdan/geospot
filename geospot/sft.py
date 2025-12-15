@@ -160,7 +160,7 @@ class CLIConfig:
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geospot-unified"
+    hf_repo: str = "sdan/geomix"
     max_shards: int | None = None
     max_steps: int = 1000
 
@@ -237,7 +237,7 @@ def main(cli: CLIConfig):
             "max_steps": cli.max_steps,
         },
     )
-    logger.info(f"Viz dashboard: http://localhost:3001/live/{run_id}")
+    logger.info(f"Viz dashboard: http://localhost:3001/training-run/{run_id}")
 
     for step in range(cli.max_steps):
         t_start = time.time()

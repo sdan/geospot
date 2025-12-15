@@ -11,3 +11,46 @@ Using `use_fast=True` but `torchvision` is not available. Falling back to the sl
 2025-12-15 00:59:46,719 - __main__ - INFO - Step 2: reward=0.735, dist=737km, tau=1672, datums=2048, skipped=0, time=433.4s
 2025-12-15 01:06:36,872 - __main__ - INFO - Step 3: reward=0.637, dist=1066km, tau=1529, datums=2048, skipped=0, time=410.1s
 2025-12-15 01:15:38,261 - __main__ - INFO - Step 4: reward=0.594, dist=1115km, tau=1399, datums=2048, skipped=0, time=541.4s
+2025-12-15 01:22:50,638 - __main__ - INFO - Step 5: reward=0.573, dist=1642km, tau=1279, datums=2048, skipped=0, time=432.4s
+Traceback (most recent call last):
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 226, in run_training
+    all_samples: list[list[tuple[list[int], list[float]]]] = await asyncio.gather(
+                                                             ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 97, in sample_group
+    )
+
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/public_interfaces/sampling_client.py", line 249, in sample_async
+    return await AwaitableConcurrentFuture(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/tinker/lib/public_interfaces/api_future.py", line 132, in result_async
+    return await asyncio.wrap_future(self._future)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 382, in <module>
+    chz.nested_entrypoint(main)
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 39, in inner
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/.venv/lib/python3.12/site-packages/chz/blueprint/_entrypoint.py", line 109, in nested_entrypoint
+    return main(value)
+           ^^^^^^^^^^^
+  File "/Users/sdan/Developer/geospot-vlm/geospot/train.py", line 378, in main
+    asyncio.run(run_training(cli))
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/Users/sdan/.local/share/uv/python/cpython-3.12.10-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt

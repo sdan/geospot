@@ -58,9 +58,20 @@ const config: Config = {
           from: { opacity: "0", transform: "scale(0.98)" },
           to: { opacity: "1", transform: "scale(1)" },
         },
+        "modal-bounce-in": {
+          "0%": { opacity: "0", transform: "scale(0.9)" },
+          "50%": { opacity: "1", transform: "scale(1.02)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "modal-bounce-out": {
+          "0%": { opacity: "1", transform: "scale(1)" },
+          "100%": { opacity: "0", transform: "scale(0.95)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.3s ease",
+        "modal-bounce-in": "modal-bounce-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",
+        "modal-bounce-out": "modal-bounce-out 0.2s ease-out forwards",
       },
     },
   },

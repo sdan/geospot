@@ -1,5 +1,9 @@
 """
-Streaming data loading for geospot-unified dataset.
+Streaming data loading for geolocation datasets.
+
+Supports:
+- sdan/geomix (default, has train/val splits)
+- sdan/geospot-unified (legacy)
 
 Uses webdataset for efficient streaming without resolving all files upfront.
 """
@@ -13,6 +17,17 @@ from huggingface_hub import list_repo_files
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# Dataset configs: repo -> (manifest_name, base_path)
+DATASET_CONFIGS = {
+    "sdan/geomix": {
+        "train": "train_shards.txt",
+        "val": "val_shards.txt",
+    },
+    "sdan/geospot-unified": {
+        "train": "shards.txt",
+    },
+}
 
 
 class GeoSample:
@@ -36,16 +51,22 @@ class GeoSample:
 
 
 def get_shard_urls(
-    hf_repo: str = "sdan/geospot-unified",
+    hf_repo: str = "sdan/geomix",
+    split: str = "train",
     max_shards: int | None = None,
     seed: int = 0,
 ) -> list[str]:
     """Get shard URLs from manifest or by listing repo files."""
     base_url = f"https://huggingface.co/datasets/{hf_repo}/resolve/main"
 
-    # Try manifest first (fast path)
-    manifest_url = f"{base_url}/shards.txt"
-    tar_files = _try_load_manifest(manifest_url)
+    # Look up manifest name from config
+    config = DATASET_CONFIGS.get(hf_repo, {})
+    manifest_name = config.get(split)
+
+    tar_files = None
+    if manifest_name:
+        manifest_url = f"{base_url}/{manifest_name}"
+        tar_files = _try_load_manifest(manifest_url)
 
     if tar_files is None:
         # Fallback: list all files (slow)
@@ -53,7 +74,7 @@ def get_shard_urls(
         all_files = list_repo_files(hf_repo, repo_type="dataset")
         tar_files = [f for f in all_files if f.endswith(".tar")]
 
-    logger.info(f"Found {len(tar_files)} shards")
+    logger.info(f"Found {len(tar_files)} shards for {hf_repo} ({split})")
 
     random.seed(seed)
     random.shuffle(tar_files)
@@ -61,7 +82,14 @@ def get_shard_urls(
     if max_shards:
         tar_files = tar_files[:max_shards]
 
-    urls = [f"{base_url}/{path}" for path in tar_files]
+    # Handle both full URLs and relative paths in manifest
+    urls = []
+    for path in tar_files:
+        if path.startswith("http"):
+            urls.append(path)
+        else:
+            urls.append(f"{base_url}/{path}")
+
     logger.info(f"Using {len(urls)} shards")
     return urls
 
@@ -80,14 +108,15 @@ def _try_load_manifest(url: str) -> list[str] | None:
 
 
 def iterate_samples(
-    hf_repo: str = "sdan/geospot-unified",
+    hf_repo: str = "sdan/geomix",
+    split: str = "train",
     max_shards: int | None = None,
     seed: int = 0,
     shuffle_buffer: int = 1000,
     max_image_size: int = 512,
 ) -> Iterator[GeoSample]:
     """Stream GeoSamples using webdataset for efficient streaming."""
-    urls = get_shard_urls(hf_repo, max_shards=max_shards, seed=seed)
+    urls = get_shard_urls(hf_repo, split=split, max_shards=max_shards, seed=seed)
 
     def warn_and_continue(exn):
         logger.debug(f"Skipping sample: {exn}")

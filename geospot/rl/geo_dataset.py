@@ -285,7 +285,7 @@ class OSV5MDatasetBuilder(GeoDatasetBuilder):
 class StreamingGeoDatasetBuilder(RLDatasetBuilder):
     """Builder for StreamingGeoDataset (webdataset-based, e.g., geospot-unified)."""
 
-    hf_repo: str = "sdan/geospot-unified"
+    hf_repo: str = "sdan/geomix"
     group_size: int = 16
     model_name_for_tokenizer: str = "Qwen/Qwen3-VL-235B-A22B-Instruct"
     renderer_name: str = "qwen3_vl"
