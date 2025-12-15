@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 // Icons as simple SVG components
@@ -54,28 +55,31 @@ const Icons = {
   ),
 };
 
-interface NavItem {
+interface NavItemConfig {
   label: string;
   href: string;
   icon: keyof typeof Icons;
   external?: boolean;
 }
 
-const navItems: NavItem[] = [
+const navItems: NavItemConfig[] = [
   { label: "API keys", href: "/api-keys", icon: "key" },
   { label: "Training runs", href: "/training-runs", icon: "training" },
   { label: "Checkpoints", href: "/checkpoints", icon: "checkpoint" },
-  { label: "Usage", href: "/usage", icon: "usage" },
+  { label: "Usage", href: "/", icon: "usage" },
   { label: "Billing", href: "/billing", icon: "billing" },
   { label: "Docs", href: "https://docs.example.com", icon: "docs", external: true },
 ];
 
-interface SidebarProps {
-  activeItem?: string;
-  onNavigate?: (item: string) => void;
-}
+export function Sidebar() {
+  const pathname = usePathname();
 
-export function Sidebar({ activeItem = "usage", onNavigate }: SidebarProps) {
+  // Determine active item from URL
+  const getIsActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
+
   return (
     <aside
       data-slot="sidebar"
@@ -83,24 +87,48 @@ export function Sidebar({ activeItem = "usage", onNavigate }: SidebarProps) {
       style={{ "--sidebar-width": "16rem" } as React.CSSProperties}
     >
       {/* Logo */}
-      <div className="flex items-center gap-2 px-4 py-4 border-b border-border">
+      <Link href="/" className="flex items-center gap-2 px-4 py-4 border-b border-border hover:bg-sidebar-accent/50 transition-colors">
         <div className="w-8 h-8 rounded-md bg-foreground/10 flex items-center justify-center">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
           </svg>
         </div>
-      </div>
+      </Link>
 
       {/* Navigation */}
       <nav className="flex-1 py-2">
         {navItems.map((item) => {
           const Icon = Icons[item.icon];
-          const isActive = activeItem === item.href.replace("/", "");
+          const isActive = getIsActive(item.href);
+
+          // External links
+          if (item.external) {
+            return (
+              <a
+                key={item.href}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "flex items-center gap-3 w-full px-4 py-2 text-sm transition-colors",
+                  "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                )}
+              >
+                <Icon />
+                <span>{item.label}</span>
+                <span className="ml-auto">
+                  <Icons.externalLink />
+                </span>
+              </a>
+            );
+          }
+
+          // Internal links - use Next.js Link
           return (
-            <button
+            <Link
               key={item.href}
-              onClick={() => onNavigate?.(item.href.replace("/", ""))}
+              href={item.href}
               className={cn(
                 "flex items-center gap-3 w-full px-4 py-2 text-sm transition-colors",
                 isActive
@@ -110,12 +138,7 @@ export function Sidebar({ activeItem = "usage", onNavigate }: SidebarProps) {
             >
               <Icon />
               <span>{item.label}</span>
-              {item.external && (
-                <span className="ml-auto">
-                  <Icons.externalLink />
-                </span>
-              )}
-            </button>
+            </Link>
           );
         })}
       </nav>

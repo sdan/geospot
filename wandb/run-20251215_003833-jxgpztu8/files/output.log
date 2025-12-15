@@ -8,3 +8,4 @@ Using `use_fast=True` but `torchvision` is not available. Falling back to the sl
 2025-12-15 00:41:10,887 - geospot.data.streaming - INFO - Using 50 shards
 2025-12-15 00:46:11,945 - __main__ - INFO - Step 0: reward=0.530, dist=1892km, tau=2000, datums=2048, skipped=0, time=379.2s
 2025-12-15 00:52:33,359 - __main__ - INFO - Step 1: reward=0.604, dist=1236km, tau=1829, datums=2048, skipped=0, time=381.4s
+2025-12-15 00:59:46,719 - __main__ - INFO - Step 2: reward=0.735, dist=737km, tau=1672, datums=2048, skipped=0, time=433.4s
