@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npx @react-grab/claude-code@latest && next dev -p 3001",
-    "build": "next build",
-    "start": "next start -p 3001"
+    "dev": "bunx @react-grab/claude-code@latest && bun next dev -p 3001",
+    "build": "bun next build",
+    "start": "bun next start -p 3001"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",

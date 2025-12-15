@@ -33,9 +33,9 @@ import {
 // ============ FAKE DATA ============
 
 const FAKE_API_KEYS = [
-  { id: "113434415614394368", createdBy: "sdan@ocf.berkeley.edu", dateCreated: "N/A", expires: "N/A" },
-  { id: "223441873387336492", createdBy: "sdan@ocf.berkeley.edu", dateCreated: "N/A", expires: "N/A" },
-  { id: "601744242086458163", createdBy: "sdan@ocf.berkeley.edu", dateCreated: "N/A", expires: "N/A" },
+  { id: "113434415614394368", createdBy: "user@example.com", dateCreated: "N/A", expires: "N/A" },
+  { id: "223441873387336492", createdBy: "user@example.com", dateCreated: "N/A", expires: "N/A" },
+  { id: "601744242086458163", createdBy: "user@example.com", dateCreated: "N/A", expires: "N/A" },
 ];
 
 const FAKE_CHECKPOINTS = [

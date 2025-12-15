@@ -79,7 +79,7 @@ export function Sidebar({ activeItem = "usage", onNavigate }: SidebarProps) {
   return (
     <aside
       data-slot="sidebar"
-      className="flex flex-col min-h-screen w-[var(--sidebar-width)] border-r border-border bg-sidebar"
+      className="flex flex-col h-screen w-[var(--sidebar-width)] border-r border-border bg-sidebar sticky top-0"
       style={{ "--sidebar-width": "16rem" } as React.CSSProperties}
     >
       {/* Logo */}
@@ -124,12 +124,12 @@ export function Sidebar({ activeItem = "usage", onNavigate }: SidebarProps) {
       <div className="border-t border-border p-4">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
-            SD
+            U
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">Surya Dantuluri</p>
+            <p className="text-sm font-medium truncate">User</p>
             <p className="text-xs text-muted-foreground truncate">
-              sdan@ocf.berkeley.edu
+              user@example.com
             </p>
           </div>
         </div>

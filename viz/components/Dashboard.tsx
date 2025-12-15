@@ -200,7 +200,12 @@ export default function Dashboard() {
   const [tokenTypeMode, setTokenTypeMode] = useState("tokens");
 
   return (
-    <div className="space-y-6 px-4">
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Usage</h1>
+      </div>
+
       {/* Stats Row */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard

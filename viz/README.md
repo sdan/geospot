@@ -74,4 +74,4 @@ Training progression adjusts kernel weights:
 - **Late**: City + street-level localization
 
 ---
-*Built for interpretability research. Stanford Hazy Research → Anthropic.*
+*Built for interpretability research.*
