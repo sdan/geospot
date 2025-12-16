@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Map, Marker } from "pigeon-maps";
 import { useLiveTraining, ImageWithSamples } from "@/hooks/useLiveTraining";
+import { useReplayTraining } from "@/hooks/useReplayTraining";
+import { Button } from "@/components/ui/button";
 import {
   LineChart,
   Line,
@@ -245,8 +247,19 @@ function ImageCard({ image, onClick }: { image: ImageWithSamples; onClick: () =>
 export default function TrainingRunPage({ params }: { params: { runId: string } }) {
   const runId = decodeURIComponent(params.runId);
   const [run, setRun] = useState<Run | null>(null);
-  const [selectedImage, setSelectedImage] = useState<ImageWithSamples | null>(null);
-  const { steps, images, connected } = useLiveTraining(runId);
+  const [selectedGroupIdx, setSelectedGroupIdx] = useState<number | null>(null);
+  const [isReplayMode, setIsReplayMode] = useState(false);
+
+  const live = useLiveTraining(runId);
+  const replay = useReplayTraining(runId);
+
+  // Use replay data when in replay mode, otherwise live
+  const steps = isReplayMode ? replay.steps : live.steps;
+  const images = isReplayMode ? replay.images : live.images;
+  const connected = isReplayMode ? replay.isReplaying : live.connected;
+
+  // Get selected image from current images array (stays synced during replay)
+  const selectedImage = selectedGroupIdx !== null ? images.find(img => img.group_idx === selectedGroupIdx) || images[0] : null;
 
   useEffect(() => {
     fetch(`/api/runs/${runId}`)
@@ -267,19 +280,56 @@ export default function TrainingRunPage({ params }: { params: { runId: string } 
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold tracking-tight">{runId}</h1>
-              <Badge variant={connected ? "green" : "destructive"}>{connected ? "Live" : "Disconnected"}</Badge>
+              <Badge variant={connected ? "green" : "destructive"}>
+                {isReplayMode ? (replay.isReplaying ? "Replaying" : "Replay Done") : (connected ? "Live" : "Disconnected")}
+              </Badge>
               {run?.type && <Badge variant="outline" className="uppercase">{run.type}</Badge>}
+              {isReplayMode && replay.totalSteps > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  {replay.replayProgress}/{replay.totalSteps}
+                </span>
+              )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {run?.name || "Loading..."} • Started {run?.started_at ? new Date(run.started_at).toLocaleString() : "..."}
             </p>
           </div>
-          {latest && (
-            <div className="text-right">
-              <div className="text-2xl font-mono font-bold">Step {latest.step}</div>
-              <div className="text-sm text-muted-foreground">{latest.mean_reward?.toFixed(4)} reward • {latest.mean_distance_km?.toFixed(0)} km</div>
+          <div className="flex items-center gap-4">
+            {/* Replay controls */}
+            <div className="flex items-center gap-2">
+              {!isReplayMode ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="text-white"
+                  onClick={() => {
+                    setIsReplayMode(true);
+                    replay.startReplay(300);
+                  }}
+                >
+                  Replay
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="text-white"
+                  onClick={() => {
+                    setIsReplayMode(false);
+                    replay.stopReplay();
+                  }}
+                >
+                  Stop Replay
+                </Button>
+              )}
             </div>
-          )}
+            {latest && (
+              <div className="text-right">
+                <div className="text-2xl font-mono font-bold">Step {latest.step}</div>
+                <div className="text-sm text-muted-foreground">{latest.mean_reward?.toFixed(4)} reward • {latest.mean_distance_km?.toFixed(0)} km</div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -355,7 +405,7 @@ export default function TrainingRunPage({ params }: { params: { runId: string } 
             <ImageCard
               key={img.id}
               image={img}
-              onClick={() => setSelectedImage(img)}
+              onClick={() => setSelectedGroupIdx(img.group_idx)}
             />
           ))}
         </div>
@@ -372,7 +422,7 @@ export default function TrainingRunPage({ params }: { params: { runId: string } 
         <PredictionModal
           image={selectedImage}
           open={!!selectedImage}
-          onOpenChange={(open) => !open && setSelectedImage(null)}
+          onOpenChange={(open) => !open && setSelectedGroupIdx(null)}
         />
       )}
     </div>
