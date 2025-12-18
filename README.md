@@ -21,18 +21,48 @@ Over the past year I've made an iOS app using a cheap GeoCLIP embedding model tr
 
 ## Approach
 
-The key idea: a model can't learn city-level precision from scratch. The gradient signal is too sparse when predictions are thousands of kilometers off. But if you start with a large distance scale (τ=2000km) and gradually decrease it (→25km), the model learns continent → country → region → city.
+The key idea: a model can't learn city-level precision from scratch. The gradient signal is too sparse when predictions are thousands of kilometers off.
+
+### Single-Turn (τ-scheduling)
+
+Start with a large distance scale (τ=2000km) and gradually decrease it (→25km), so the model learns continent → country → region → city.
 
 ```
 reward = exp(-distance_km / τ)
 ```
 
-It turns out the distance alone is enough when you schedule τ correctly. You might expect RL to need richer signal (hierarchical labels, landmark detection, etc.) but this (somewhat works, I haven't run all my ablations yet)
+### Multi-Turn Geohash Curriculum (NEW)
+
+A 3-turn approach using geohash precision levels. Each turn asks for progressively more precise coordinates:
+
+| Turn | Precision | Geohash Chars | Approx. Accuracy |
+|------|-----------|---------------|------------------|
+| 1 | Coarse | 2 | ~600km |
+| 2 | Medium | 4 | ~40km |
+| 3 | Fine | 6 | ~1km |
+
+**How it works:**
+- Turn 1: "Where is this? Give an approximate estimate." → Model predicts rough coords
+- Turn 2: "Your initial guess was (X, Y). Refine your estimate." → Model refines
+- Turn 3: "Your refined guess was (X, Y). Give final coordinates." → Final prediction
+
+**Reward:** Geohash prefix matching + improvement bonus when predictions get closer.
+
+**Teacher Forcing:** Configurable probability (0.0-1.0) to show ground truth hints vs model's own predictions between turns. TF=0.5 gives a balanced mix.
+
+```bash
+# Run multi-turn curriculum training
+python -m geospot.train_geohash_curriculum max_samples=5000
+```
+
+**Why geohash?** No need for country/region text labels. Purely spatial, mathematically precise. Works with any lat/lon dataset.
+
+### Training Pipeline
 
 1. **SFT warm-start**: teach the model to output coordinates in a consistent format
-2. **GRPO**: 16 rollouts per image, advantage centering, importance-weighted updates
+2. **GRPO**: 8 rollouts per image, advantage centering, importance-weighted updates
 
-Training runs on [tinker](https://tinker.dev) with 2048 concurrent samples per step, streaming data from HuggingFace via WebDataset.
+Training runs on [tinker](https://tinker.dev) with concurrent samples per step, streaming data from HuggingFace.
 
 ## Install
 

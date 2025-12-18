@@ -315,3 +315,372 @@ class StreamingGeoDatasetBuilder(RLDatasetBuilder):
         )
 
         return dataset, None  # No test set for streaming
+
+
+# -----------------------------------------------------------------------------
+# Hierarchical (multi-turn) dataset builders
+# -----------------------------------------------------------------------------
+
+from geospot.rl.hierarchical_geo_env import (
+    HierarchicalGeoEnv,
+    HierarchicalGeoEnvConfig,
+    HierarchicalGeoGroupBuilder,
+)
+
+
+class HierarchicalGeoDataset(RLDataset):
+    """RL dataset for hierarchical multi-turn geo training."""
+
+    def __init__(
+        self,
+        ds: Dataset,
+        batch_size: int,
+        group_size: int,
+        renderer: Renderer,
+        env_config: HierarchicalGeoEnvConfig | None = None,
+        image_column: str = "image",
+        lat_column: str = "lat",
+        lon_column: str = "lon",
+        city_column: str | None = "city",
+        region_column: str | None = "region",
+        country_column: str | None = "country",
+    ):
+        self.ds = ds
+        self.batch_size = batch_size
+        self.group_size = group_size
+        self.renderer = renderer
+        self.env_config = env_config or HierarchicalGeoEnvConfig()
+
+        self.image_column = image_column
+        self.lat_column = lat_column
+        self.lon_column = lon_column
+        self.city_column = city_column
+        self.region_column = region_column
+        self.country_column = country_column
+
+    def _get_value(self, row: dict[str, Any], key: str | None) -> Any:
+        """Get value from row, handling nested 'json' dict structure."""
+        if key is None:
+            return None
+        if key in row:
+            return row[key]
+        if "json" in row and isinstance(row["json"], dict):
+            if key in row["json"]:
+                return row["json"][key]
+        return None
+
+    def __len__(self) -> int:
+        return math.ceil(len(self.ds) / self.batch_size)
+
+    def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
+        batch_start = index * self.batch_size
+        batch_end = min((index + 1) * self.batch_size, len(self.ds))
+        assert batch_start < batch_end, "Incorrect batch size"
+        return [
+            builder
+            for row in self.ds.select(range(batch_start, batch_end))
+            if (builder := self._make_env_group_builder(row)) is not None
+        ]
+
+    def _make_env_group_builder(self, row: dict[str, Any]) -> HierarchicalGeoGroupBuilder | None:
+        try:
+            image = self._get_value(row, self.image_column)
+            if image is None:
+                return None
+            if isinstance(image, bytes):
+                image = Image.open(io.BytesIO(image))
+            elif not isinstance(image, Image.Image):
+                logger.warning(f"Unexpected image type: {type(image)}")
+                return None
+
+            lat = float(self._get_value(row, self.lat_column))
+            lon = float(self._get_value(row, self.lon_column))
+
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                logger.warning(f"Invalid coordinates: lat={lat}, lon={lon}")
+                return None
+
+            city = self._get_value(row, self.city_column)
+            region = self._get_value(row, self.region_column)
+            country = self._get_value(row, self.country_column)
+
+            # Skip samples without country/region labels (needed for hierarchical)
+            if not country:
+                logger.debug("Skipping sample without country label")
+                return None
+
+            ground_truth = GeoLocation(
+                lat=lat, lon=lon, city=city, region=region, country=country
+            )
+
+            return HierarchicalGeoGroupBuilder(
+                env_thunk=partial(
+                    HierarchicalGeoEnv,
+                    image=image,
+                    ground_truth=ground_truth,
+                    renderer=self.renderer,
+                    config=self.env_config,
+                ),
+                num_envs=self.group_size,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to create hierarchical env from row: {e}")
+            return None
+
+
+@chz.chz
+class HierarchicalGeoDatasetBuilder(RLDatasetBuilder):
+    """Builder for hierarchical multi-turn geo training."""
+
+    hf_repo: str
+    batch_size: int
+    model_name_for_tokenizer: str
+    renderer_name: str
+    group_size: int
+
+    hf_split: str = "train"
+    hf_test_split: str | None = "test"
+    max_samples: int | None = None
+    seed: int = 0
+
+    image_column: str = "jpg"
+    lat_column: str = "lat"
+    lon_column: str = "lon"
+    city_column: str | None = "city"
+    region_column: str | None = "region"
+    country_column: str | None = "country"
+
+    # Hierarchical-specific config
+    max_image_size: int = 480
+    teacher_forcing_prob: float = 1.0
+    turns: list[str] = chz.field(default_factory=lambda: ["country", "region", "coords"])
+    reward_config: GeoRewardConfig | None = None
+
+    async def __call__(self) -> tuple[HierarchicalGeoDataset, HierarchicalGeoDataset | None]:
+        tokenizer = get_tokenizer(self.model_name_for_tokenizer)
+        image_processor = get_image_processor(self.model_name_for_tokenizer)
+        renderer = get_renderer(self.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
+
+        env_config = HierarchicalGeoEnvConfig(
+            turns=self.turns,
+            teacher_forcing_prob=self.teacher_forcing_prob,
+            max_image_size=self.max_image_size,
+            reward_config=self.reward_config,
+        )
+
+        train_ds = self._load_split(self.hf_split)
+        train_dataset = HierarchicalGeoDataset(
+            ds=train_ds,
+            batch_size=self.batch_size,
+            group_size=self.group_size,
+            renderer=renderer,
+            env_config=env_config,
+            image_column=self.image_column,
+            lat_column=self.lat_column,
+            lon_column=self.lon_column,
+            city_column=self.city_column,
+            region_column=self.region_column,
+            country_column=self.country_column,
+        )
+
+        test_dataset = None
+        if self.hf_test_split:
+            try:
+                test_ds = self._load_split(self.hf_test_split)
+                # Test with no teacher forcing (realistic evaluation)
+                test_env_config = HierarchicalGeoEnvConfig(
+                    turns=self.turns,
+                    teacher_forcing_prob=0.0,  # No hints during eval
+                    max_image_size=self.max_image_size,
+                    reward_config=self.reward_config,
+                )
+                test_dataset = HierarchicalGeoDataset(
+                    ds=test_ds,
+                    batch_size=self.batch_size,
+                    group_size=1,  # No GRPO for eval
+                    renderer=renderer,
+                    env_config=test_env_config,
+                    image_column=self.image_column,
+                    lat_column=self.lat_column,
+                    lon_column=self.lon_column,
+                    city_column=self.city_column,
+                    region_column=self.region_column,
+                    country_column=self.country_column,
+                )
+            except Exception as e:
+                logger.warning(f"Could not load test split: {e}")
+
+        return train_dataset, test_dataset
+
+    def _load_split(self, split: str) -> Dataset:
+        logger.info(f"Loading {self.hf_repo} split={split} (streaming)")
+        ds = load_dataset(self.hf_repo, split=split, streaming=True)
+
+        if self.max_samples:
+            samples = list(ds.take(self.max_samples))
+        else:
+            samples = list(ds.take(10000))
+
+        from datasets import Dataset as HFDataset
+        ds = HFDataset.from_list(samples)
+        ds = ds.shuffle(seed=self.seed)
+        logger.info(f"Loaded {len(ds):,} samples")
+        return ds
+
+
+# -----------------------------------------------------------------------------
+# Geohash Curriculum (no labels needed, just lat/lon)
+# -----------------------------------------------------------------------------
+
+from geospot.rl.geohash_curriculum_env import (
+    GeohashCurriculumEnv,
+    GeohashCurriculumConfig,
+    GeohashCurriculumGroupBuilder,
+)
+
+
+class GeohashCurriculumDataset(RLDataset):
+    """RL dataset for geohash-based curriculum training. Works with any dataset that has lat/lon."""
+
+    def __init__(
+        self,
+        ds: Dataset,
+        batch_size: int,
+        group_size: int,
+        renderer: Renderer,
+        env_config: GeohashCurriculumConfig | None = None,
+        image_column: str = "jpg",
+        lat_column: str = "lat",
+        lon_column: str = "lon",
+    ):
+        self.ds = ds
+        self.batch_size = batch_size
+        self.group_size = group_size
+        self.renderer = renderer
+        self.env_config = env_config or GeohashCurriculumConfig()
+
+        self.image_column = image_column
+        self.lat_column = lat_column
+        self.lon_column = lon_column
+
+    def _get_value(self, row: dict[str, Any], key: str) -> Any:
+        """Get value from row, handling nested 'json' dict structure."""
+        if key in row:
+            return row[key]
+        if "json" in row and isinstance(row["json"], dict):
+            if key in row["json"]:
+                return row["json"][key]
+        return None
+
+    def __len__(self) -> int:
+        return math.ceil(len(self.ds) / self.batch_size)
+
+    def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
+        batch_start = index * self.batch_size
+        batch_end = min((index + 1) * self.batch_size, len(self.ds))
+        assert batch_start < batch_end, "Incorrect batch size"
+        return [
+            builder
+            for row in self.ds.select(range(batch_start, batch_end))
+            if (builder := self._make_env_group_builder(row)) is not None
+        ]
+
+    def _make_env_group_builder(self, row: dict[str, Any]) -> GeohashCurriculumGroupBuilder | None:
+        try:
+            image = self._get_value(row, self.image_column)
+            if image is None:
+                return None
+            if isinstance(image, bytes):
+                image = Image.open(io.BytesIO(image))
+            elif not isinstance(image, Image.Image):
+                logger.warning(f"Unexpected image type: {type(image)}")
+                return None
+
+            lat = float(self._get_value(row, self.lat_column))
+            lon = float(self._get_value(row, self.lon_column))
+
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                logger.warning(f"Invalid coordinates: lat={lat}, lon={lon}")
+                return None
+
+            # Only need lat/lon for geohash curriculum
+            ground_truth = GeoLocation(lat=lat, lon=lon)
+
+            return GeohashCurriculumGroupBuilder(
+                env_thunk=partial(
+                    GeohashCurriculumEnv,
+                    image=image,
+                    ground_truth=ground_truth,
+                    renderer=self.renderer,
+                    config=self.env_config,
+                ),
+                num_envs=self.group_size,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to create geohash curriculum env from row: {e}")
+            return None
+
+
+@chz.chz
+class GeohashCurriculumDatasetBuilder(RLDatasetBuilder):
+    """Builder for geohash-based curriculum training. Works with geomix or any lat/lon dataset."""
+
+    hf_repo: str = "sdan/geomix"
+    batch_size: int = 32
+    model_name_for_tokenizer: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    renderer_name: str = "qwen3_vl"
+    group_size: int = 8
+
+    hf_split: str = "train"
+    max_samples: int | None = None
+    seed: int = 0
+
+    image_column: str = "jpg"
+    lat_column: str = "lat"
+    lon_column: str = "lon"
+
+    max_image_size: int = 480
+    teacher_forcing_prob: float = 0.5  # Balanced: 50% ground truth hints, 50% own predictions
+    improvement_bonus: float = 0.1
+
+    async def __call__(self) -> tuple[GeohashCurriculumDataset, None]:
+        tokenizer = get_tokenizer(self.model_name_for_tokenizer)
+        image_processor = get_image_processor(self.model_name_for_tokenizer)
+        renderer = get_renderer(self.renderer_name, tokenizer=tokenizer, image_processor=image_processor)
+
+        env_config = GeohashCurriculumConfig(
+            teacher_forcing_prob=self.teacher_forcing_prob,
+            improvement_bonus=self.improvement_bonus,
+            max_image_size=self.max_image_size,
+        )
+
+        train_ds = self._load_split(self.hf_split)
+        train_dataset = GeohashCurriculumDataset(
+            ds=train_ds,
+            batch_size=self.batch_size,
+            group_size=self.group_size,
+            renderer=renderer,
+            env_config=env_config,
+            image_column=self.image_column,
+            lat_column=self.lat_column,
+            lon_column=self.lon_column,
+        )
+
+        return train_dataset, None
+
+    def _load_split(self, split: str) -> Dataset:
+        logger.info(f"Loading {self.hf_repo} split={split} (streaming)")
+        ds = load_dataset(self.hf_repo, split=split, streaming=True)
+
+        if self.max_samples:
+            samples = list(ds.take(self.max_samples))
+        else:
+            samples = list(ds.take(10000))
+
+        from datasets import Dataset as HFDataset
+        ds = HFDataset.from_list(samples)
+        ds = ds.shuffle(seed=self.seed)
+        logger.info(f"Loaded {len(ds):,} samples")
+        return ds

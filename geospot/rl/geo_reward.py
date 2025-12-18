@@ -131,7 +131,8 @@ def geohash_encode(lat: float, lon: float, precision: int = 6) -> str:
     return "".join(chars)
 
 
-def _common_prefix_len(a: str, b: str) -> int:
+def common_prefix_len(a: str, b: str) -> int:
+    """Return length of common prefix between two strings."""
     for i in range(min(len(a), len(b))):
         if a[i] != b[i]:
             return i
@@ -226,7 +227,7 @@ def compute_geo_reward(
     if cfg.geocell_weight > 0 and cfg.geohash_precision > 0:
         pred_hash = geohash_encode(pred.lat, pred.lon, cfg.geohash_precision)
         gt_hash = geohash_encode(gt.lat, gt.lon, cfg.geohash_precision)
-        geohash_prefix_len = _common_prefix_len(pred_hash, gt_hash)
+        geohash_prefix_len = common_prefix_len(pred_hash, gt_hash)
         geocell_reward = geohash_prefix_len / cfg.geohash_precision
 
     # Weighted sum
