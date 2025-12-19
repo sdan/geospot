@@ -7,7 +7,7 @@ NO country/region labels needed - just lat/lon.
 Turns:
 1. Coarse prediction → reward if geohash[0:2] matches (~600km)
 2. Medium prediction → reward if geohash[0:4] matches (~40km)
-3. Fine prediction → reward based on exact distance
+3. Fine prediction → reward based on geohash[0:6] match (+ distance metrics)
 
 This is cleaner than text-based hierarchy because:
 - No need for reverse geocoding
@@ -17,6 +17,7 @@ This is cleaner than text-based hierarchy because:
 
 import logging
 import random
+import re
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Callable, Sequence
@@ -42,6 +43,7 @@ from geospot.rl.geo_reward import (
     geohash_encode,
     common_prefix_len,
     haversine_km,
+    geoguessr_score,
 )
 from geospot.renderers import ImagePart, Message, Renderer, TextPart, ensure_text
 from geospot.completers import StopCondition
@@ -219,13 +221,14 @@ class GeohashCurriculumEnv(Env):
         # Distance for metrics
         distance_km = haversine_km(pred_lat, pred_lon, self.ground_truth.lat, self.ground_truth.lon)
 
-        # Improvement bonus: did we get closer than last turn?
+        # Improvement shaping: bounded by final score, so sandbagging can't increase total.
         improvement_bonus = 0.0
         if self.predictions:
             prev_lat, prev_lon = self.predictions[-1]
             prev_distance = haversine_km(prev_lat, prev_lon, self.ground_truth.lat, self.ground_truth.lon)
-            if distance_km < prev_distance:
-                improvement_bonus = self.config.improvement_bonus
+            score = geoguessr_score(distance_km) / 5000.0
+            prev_score = geoguessr_score(prev_distance) / 5000.0
+            improvement_bonus = float(self.config.improvement_bonus) * max(0.0, score - prev_score)
 
         # Total reward for this level
         reward = geohash_reward + improvement_bonus
@@ -255,6 +258,7 @@ class GeohashCurriculumEnv(Env):
         """Process model response and advance to next level or finish."""
         message, parse_success = self.renderer.parse_response(action)
         response_text = ensure_text(message["content"])
+        response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
 
         level = self.current_level
         if level is None:

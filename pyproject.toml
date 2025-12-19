@@ -27,6 +27,7 @@ dependencies = [
     "datasets>=2.18.0,<3.0.0",
     "huggingface-hub>=0.23.0",
     "numpy>=1.24",
+    "reverse_geocoder>=1.5.1",
     "webdataset>=1.0.2",
     "wandb>=0.23.1",
 ]

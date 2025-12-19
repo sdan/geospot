@@ -131,6 +131,7 @@ class StreamingGeoDataset(RLDataset):
         env_config: GeoEnvConfig | None = None,
         max_shards: int | None = None,
         seed: int = 0,
+        local_path: str | None = None,
     ):
         self.hf_repo = hf_repo
         self.group_size = group_size
@@ -138,6 +139,7 @@ class StreamingGeoDataset(RLDataset):
         self.env_config = env_config or GeoEnvConfig()
         self.max_shards = max_shards
         self.seed = seed
+        self.local_path = local_path  # e.g., "$BT_PROJECT_CACHE_DIR/geomix" for Baseten
         self._sample_iter: Iterator[GeoSample] | None = None
 
     def _get_sample_iter(self) -> Iterator[GeoSample]:
@@ -146,6 +148,7 @@ class StreamingGeoDataset(RLDataset):
                 hf_repo=self.hf_repo,
                 max_shards=self.max_shards,
                 seed=self.seed,
+                local_path=self.local_path,
             )
         return self._sample_iter
 
@@ -295,6 +298,9 @@ class StreamingGeoDatasetBuilder(RLDatasetBuilder):
     max_image_size: int = 480
     reward_config: GeoRewardConfig | None = None
 
+    # Local cache path (e.g., Baseten cache). If set, reads from local disk instead of HuggingFace.
+    local_path: str | None = None
+
     async def __call__(self) -> tuple[StreamingGeoDataset, None]:
         tokenizer = get_tokenizer(self.model_name_for_tokenizer)
         image_processor = get_image_processor(self.model_name_for_tokenizer)
@@ -312,6 +318,7 @@ class StreamingGeoDatasetBuilder(RLDatasetBuilder):
             env_config=env_config,
             max_shards=self.max_shards,
             seed=self.seed,
+            local_path=self.local_path,
         )
 
         return dataset, None  # No test set for streaming
