@@ -34,6 +34,122 @@ class GeoLocation(NamedTuple):
     country: str | None = None
 
 
+# -----------------------------------------------------------------------------
+# Reverse Geocoding (coords → country/region)
+# -----------------------------------------------------------------------------
+
+class ReverseGeocoder:
+    """
+    Offline reverse geocoder using reverse_geocoder library.
+
+    Converts (lat, lon) → {country, region, city}.
+    Uses K-D tree for fast lookups, no API calls needed.
+
+    Install: pip install reverse_geocoder
+    """
+
+    _instance: "ReverseGeocoder | None" = None
+    _rg = None  # Lazy load reverse_geocoder module
+
+    def __new__(cls) -> "ReverseGeocoder":
+        # Singleton pattern - reverse_geocoder loads a large dataset on first use
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def _ensure_loaded(self):
+        if self._rg is None:
+            try:
+                import reverse_geocoder as rg
+                # Pre-load the dataset (happens once)
+                rg.search([(0, 0)])
+                ReverseGeocoder._rg = rg
+            except ImportError:
+                raise ImportError(
+                    "reverse_geocoder not installed. Run: pip install reverse_geocoder"
+                )
+
+    def __call__(self, lat: float, lon: float) -> dict[str, str | None]:
+        """
+        Reverse geocode coordinates to location info.
+
+        Returns:
+            {"country": "US", "region": "California", "city": "San Francisco"}
+        """
+        self._ensure_loaded()
+
+        if not _valid_coords(lat, lon):
+            return {"country": None, "region": None, "city": None}
+
+        results = self._rg.search([(lat, lon)])
+        if not results:
+            return {"country": None, "region": None, "city": None}
+
+        result = results[0]
+        return {
+            "country": result.get("cc"),       # ISO-2 country code
+            "region": result.get("admin1"),    # State/province
+            "city": result.get("name"),        # Nearest city
+        }
+
+    def batch(self, coords: list[tuple[float, float]]) -> list[dict[str, str | None]]:
+        """Batch reverse geocode for efficiency."""
+        self._ensure_loaded()
+
+        out = [{"country": None, "region": None, "city": None} for _ in coords]
+
+        valid_pairs: list[tuple[float, float]] = []
+        valid_indices: list[int] = []
+        for i, (lat, lon) in enumerate(coords):
+            if _valid_coords(lat, lon):
+                valid_pairs.append((lat, lon))
+                valid_indices.append(i)
+
+        if not valid_pairs:
+            return out
+
+        results = self._rg.search(valid_pairs)
+        for i, r in zip(valid_indices, results, strict=True):
+            out[i] = {
+                "country": r.get("cc"),
+                "region": r.get("admin1"),
+                "city": r.get("name"),
+            }
+
+        return out
+
+
+def geo_location_from_coords(
+    lat: float,
+    lon: float,
+    reverse_geocode: bool = True,
+) -> GeoLocation:
+    """
+    Create a GeoLocation from coordinates, optionally reverse geocoding.
+
+    Args:
+        lat: Latitude
+        lon: Longitude
+        reverse_geocode: If True, derive country/region/city from coords
+
+    Returns:
+        GeoLocation with populated fields
+    """
+    if not reverse_geocode:
+        return GeoLocation(lat=lat, lon=lon)
+
+    geocoder = ReverseGeocoder()
+    info = geocoder(lat, lon)
+
+    return GeoLocation(
+        lat=lat,
+        lon=lon,
+        city=info.get("city"),
+        region=info.get("region"),
+        country=info.get("country"),
+    )
+
+
 class ParsedGeoResponse(NamedTuple):
     """Result of parsing model output."""
 

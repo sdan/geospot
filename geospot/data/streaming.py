@@ -55,8 +55,32 @@ def get_shard_urls(
     split: str = "train",
     max_shards: int | None = None,
     seed: int = 0,
+    local_path: str | None = None,
 ) -> list[str]:
-    """Get shard URLs from manifest or by listing repo files."""
+    """Get shard URLs from manifest, local path, or by listing repo files.
+
+    Args:
+        local_path: If provided, read shards from this local directory instead of HuggingFace.
+                    e.g., "/root/.cache/user_artifacts/geomix" for Baseten cache.
+    """
+    import glob as globmod
+
+    # Local path mode: glob for .tar files directly
+    if local_path:
+        pattern = f"{local_path}/**/*.tar"
+        tar_files = sorted(globmod.glob(pattern, recursive=True))
+        if not tar_files:
+            # Try non-recursive
+            tar_files = sorted(globmod.glob(f"{local_path}/*.tar"))
+        logger.info(f"Found {len(tar_files)} local shards in {local_path}")
+
+        random.seed(seed)
+        random.shuffle(tar_files)
+        if max_shards:
+            tar_files = tar_files[:max_shards]
+        return tar_files
+
+    # HuggingFace mode (original behavior)
     base_url = f"https://huggingface.co/datasets/{hf_repo}/resolve/main"
 
     # Look up manifest name from config
@@ -114,9 +138,15 @@ def iterate_samples(
     seed: int = 0,
     shuffle_buffer: int = 1000,
     max_image_size: int = 512,
+    local_path: str | None = None,
 ) -> Iterator[GeoSample]:
-    """Stream GeoSamples using webdataset for efficient streaming."""
-    urls = get_shard_urls(hf_repo, split=split, max_shards=max_shards, seed=seed)
+    """Stream GeoSamples using webdataset for efficient streaming.
+
+    Args:
+        local_path: If provided, read from local cache instead of HuggingFace.
+                    e.g., "$BT_PROJECT_CACHE_DIR/geomix" for Baseten.
+    """
+    urls = get_shard_urls(hf_repo, split=split, max_shards=max_shards, seed=seed, local_path=local_path)
 
     def warn_and_continue(exn):
         logger.debug(f"Skipping sample: {exn}")

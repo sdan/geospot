@@ -44,6 +44,7 @@ class CLIConfig:
     hf_repo: str = "sdan/geomix"
     max_shards: int | None = None
     max_steps: int = 100
+    local_path: str | None = None  # Local cache path (e.g., Baseten: $BT_PROJECT_CACHE_DIR/geomix)
 
     # Training
     batch_size: int = 128
@@ -156,6 +157,7 @@ async def run_training(cli: CLIConfig):
         env_config=env_config,
         max_shards=cli.max_shards,
         seed=cli.seed,
+        local_path=cli.local_path,
     )
 
     # Training client (use async variants to avoid deadlocks)
