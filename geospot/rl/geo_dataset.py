@@ -139,7 +139,7 @@ class StreamingGeoDataset(RLDataset):
         self.env_config = env_config or GeoEnvConfig()
         self.max_shards = max_shards
         self.seed = seed
-        self.local_path = local_path  # e.g., "$BT_PROJECT_CACHE_DIR/geomix" for Baseten
+        self.local_path = local_path  # e.g., "/cache/osv5m" for Modal volume
         self._sample_iter: Iterator[GeoSample] | None = None
 
     def _get_sample_iter(self) -> Iterator[GeoSample]:
@@ -286,9 +286,9 @@ class OSV5MDatasetBuilder(GeoDatasetBuilder):
 
 @chz.chz
 class StreamingGeoDatasetBuilder(RLDatasetBuilder):
-    """Builder for StreamingGeoDataset (webdataset-based, e.g., geospot-unified)."""
+    """Builder for StreamingGeoDataset (supports osv5m/osv5m, sdan/geomix, etc.)."""
 
-    hf_repo: str = "sdan/geomix"
+    hf_repo: str = "osv5m/osv5m"
     group_size: int = 16
     model_name_for_tokenizer: str = "Qwen/Qwen3-VL-235B-A22B-Instruct"
     renderer_name: str = "qwen3_vl"
@@ -298,7 +298,7 @@ class StreamingGeoDatasetBuilder(RLDatasetBuilder):
     max_image_size: int = 480
     reward_config: GeoRewardConfig | None = None
 
-    # Local cache path (e.g., Baseten cache). If set, reads from local disk instead of HuggingFace.
+    # Local cache path (e.g., Modal volume). If set, reads from local disk instead of HuggingFace.
     local_path: str | None = None
 
     async def __call__(self) -> tuple[StreamingGeoDataset, None]:
@@ -632,9 +632,9 @@ class GeohashCurriculumDataset(RLDataset):
 
 @chz.chz
 class GeohashCurriculumDatasetBuilder(RLDatasetBuilder):
-    """Builder for geohash-based curriculum training. Works with geomix or any lat/lon dataset."""
+    """Builder for geohash-based curriculum training. Works with osv5m or any lat/lon dataset."""
 
-    hf_repo: str = "sdan/geomix"
+    hf_repo: str = "osv5m/osv5m"
     batch_size: int = 32
     model_name_for_tokenizer: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"
     renderer_name: str = "qwen3_vl"
