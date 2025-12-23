@@ -267,10 +267,14 @@ async def run_training(cfg: Config):
     logger.info(f"Model: {cfg.model_name}, batch={cfg.batch_size}, group={cfg.group_size}")
 
     if cfg.wandb_project:
+        # Descriptive run name: rl-single-qwen30b-osv5m or rl-multi-qwen30b-osv5m
+        model_short = cfg.model_name.split("/")[-1].lower().replace("-instruct", "")
+        dataset_short = cfg.hf_repo.split("/")[-1]
+        run_name = f"rl-{cfg.env_type}-{model_short}-{dataset_short}"
         wandb.init(
             project=cfg.wandb_project,
-            name=f"{cfg.env_type}-{cfg.hf_repo.split('/')[-1]}",
-            tags=["grpo", cfg.env_type],
+            name=run_name,
+            tags=["grpo", cfg.env_type, "rl"],
             config=vars(cfg) if hasattr(cfg, '__dict__') else {},
         )
 

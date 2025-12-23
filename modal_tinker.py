@@ -1,12 +1,14 @@
 """
-Modal job: Visual geolocation RL training with Tinker API.
+Modal jobs for geospot training with Tinker API.
 
 CPU-only orchestrator - Tinker handles GPU remotely.
 Streams OSV-5M directly from HuggingFace.
 
 Usage:
-    modal run modal_tinker.py             # Start training
-    modal run modal_tinker.py --action train
+    modal run modal_tinker.py                      # RL training (default)
+    modal run modal_tinker.py --action rl
+    modal run modal_tinker.py --action sft
+    modal run modal_tinker.py --action smoke       # Quick test (2 steps)
     modal run modal_tinker.py --action show_cache
 """
 import modal
@@ -22,11 +24,12 @@ image = (
     .apt_install("git")
     .pip_install(
         "tinker",
-        "datasets",  # For OSV-5M streaming
+        "datasets",
         "pillow",
         "wandb",
         "chz",
         "huggingface_hub",
+        "transformers",
         "numpy<2",
         "torch==2.2.2+cpu",
         "torchvision==0.17.2+cpu",
@@ -49,26 +52,62 @@ TRAIN_SECRETS = [
     modal.Secret.from_name("hf-token"),
 ]
 
-# Training hyperparameters
-COMMON_ARGS = {
+# =============================================================================
+# Config presets
+# =============================================================================
+
+MODEL = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+HF_REPO = "osv5m/osv5m"
+
+# RL training defaults
+RL_ARGS = {
+    "model_name": MODEL,
+    "hf_repo": HF_REPO,
     "max_steps": 100,
     "batch_size": 64,
     "group_size": 8,
     "learning_rate": 4e-5,
     "save_every": 25,
     "env_type": "single",  # "single" or "multi"
+    "wandb_project": "geospot-tinker-dec23",
     "behavior_if_log_dir_exists": "delete",
 }
 
-SMOKE_ARGS = {
+# SFT training defaults
+SFT_ARGS = {
+    "model_name": MODEL,
+    "hf_repo": HF_REPO,
+    "max_steps": 1000,
+    "batch_size": 128,
+    "learning_rate": 1e-4,
+    "lora_rank": 32,
+    "save_every": 100,
+    "wandb_project": "geospot-tinker-dec23",
+    "behavior_if_log_dir_exists": "delete",
+}
+
+# Quick smoke tests
+SMOKE_RL_ARGS = {
     "max_steps": 2,
     "batch_size": 2,
     "group_size": 2,
-    "hf_repo": "osv5m/osv5m",
-    "wandb_project": "None",
     "save_every": 0,
+    "wandb_project": "",
     "behavior_if_log_dir_exists": "delete",
 }
+
+SMOKE_SFT_ARGS = {
+    "max_steps": 2,
+    "batch_size": 2,
+    "save_every": 0,
+    "wandb_project": "",
+    "behavior_if_log_dir_exists": "delete",
+}
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
 
 
 def _run_with_repo(cmd: list[str]):
@@ -81,25 +120,22 @@ def _run_with_repo(cmd: list[str]):
     subprocess.run(cmd, check=True, env=env)
 
 
-def _build_train_cmd(extra_args: dict | None = None) -> list[str]:
-    """Build training command using train_rl entry point."""
-    cmd = [
-        "python", "-m", "geospot.train_rl",
-        "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
-        "hf_repo=osv5m/osv5m",
-        f"env_type={COMMON_ARGS['env_type']}",
-        f"max_steps={COMMON_ARGS['max_steps']}",
-        f"batch_size={COMMON_ARGS['batch_size']}",
-        f"group_size={COMMON_ARGS['group_size']}",
-        f"learning_rate={COMMON_ARGS['learning_rate']}",
-        f"save_every={COMMON_ARGS['save_every']}",
-        "wandb_project=geospot-tinker",
-        f"behavior_if_log_dir_exists={COMMON_ARGS['behavior_if_log_dir_exists']}",
-    ]
+def _build_cmd(module: str, args: dict, extra_args: dict | None = None) -> list[str]:
+    """Build training command for a module."""
+    merged = {**args}
     if extra_args:
-        for k, v in extra_args.items():
+        merged.update(extra_args)
+
+    cmd = ["python", "-m", module]
+    for k, v in merged.items():
+        if v is not None and v != "":
             cmd.append(f"{k}={v}")
     return cmd
+
+
+# =============================================================================
+# Modal functions
+# =============================================================================
 
 
 @app.function(
@@ -110,10 +146,26 @@ def _build_train_cmd(extra_args: dict | None = None) -> list[str]:
     volumes={"/root/.cache/huggingface": hf_cache_volume},
     secrets=TRAIN_SECRETS,
 )
-def train(extra_args: dict | None = None):
-    """Run visual geolocation RL training with OSV-5M."""
-    cmd = _build_train_cmd(extra_args=extra_args)
-    print(f"Running: {' '.join(cmd)}")
+def train_rl(extra_args: dict | None = None):
+    """Run GRPO RL training on OSV-5M."""
+    cmd = _build_cmd("geospot.train_rl", RL_ARGS, extra_args)
+    print(f"Running RL: {' '.join(cmd)}")
+    _run_with_repo(cmd)
+    hf_cache_volume.commit()
+
+
+@app.function(
+    image=image,
+    cpu=8,
+    memory=32768,
+    timeout=3600 * 24,  # 24 hours
+    volumes={"/root/.cache/huggingface": hf_cache_volume},
+    secrets=TRAIN_SECRETS,
+)
+def train_sft(extra_args: dict | None = None):
+    """Run SFT warm-start on OSV-5M."""
+    cmd = _build_cmd("geospot.sft", SFT_ARGS, extra_args)
+    print(f"Running SFT: {' '.join(cmd)}")
     _run_with_repo(cmd)
     hf_cache_volume.commit()
 
@@ -152,25 +204,45 @@ def show_hf_cache(max_entries: int = 50):
 
 
 @app.local_entrypoint()
-def main(action: str = "train"):
+def main(action: str = "rl"):
     """
     Entry point for modal run.
 
     Usage:
-        modal run modal_tinker.py                   # train (default)
-        modal run modal_tinker.py --action train
+        modal run modal_tinker.py                       # RL single-turn (default)
+        modal run modal_tinker.py --action rl-single    # GRPO RL single-turn
+        modal run modal_tinker.py --action rl-multi     # GRPO RL multi-turn (dense rewards)
+        modal run modal_tinker.py --action sft          # SFT warm-start
+        modal run modal_tinker.py --action smoke-rl     # Quick RL test (2 steps)
+        modal run modal_tinker.py --action smoke-sft    # Quick SFT test (2 steps)
         modal run modal_tinker.py --action show_cache
     """
-    if action == "train":
-        print("Starting visual geolocation RL training on OSV-5M...")
-        train.remote()
-        print("Training complete!")
-    elif action == "smoke":
-        print("Starting smoke run (2 steps) on OSV-5M...")
-        train.remote(extra_args=SMOKE_ARGS)
-        print("Smoke run complete!")
+    if action == "rl" or action == "rl-single":
+        print("Starting GRPO RL (single-turn) on OSV-5M...")
+        print(f"Config: {RL_ARGS}")
+        train_rl.remote(extra_args={"env_type": "single"})
+        print("RL single-turn training complete!")
+    elif action == "rl-multi":
+        print("Starting GRPO RL (multi-turn dense rewards) on OSV-5M...")
+        config = {**RL_ARGS, "env_type": "multi"}
+        print(f"Config: {config}")
+        train_rl.remote(extra_args={"env_type": "multi"})
+        print("RL multi-turn training complete!")
+    elif action == "sft":
+        print("Starting SFT warm-start on OSV-5M...")
+        print(f"Config: {SFT_ARGS}")
+        train_sft.remote()
+        print("SFT training complete!")
+    elif action == "smoke-rl":
+        print("Starting RL smoke test (2 steps)...")
+        train_rl.remote(extra_args=SMOKE_RL_ARGS)
+        print("RL smoke test complete!")
+    elif action == "smoke-sft":
+        print("Starting SFT smoke test (2 steps)...")
+        train_sft.remote(extra_args=SMOKE_SFT_ARGS)
+        print("SFT smoke test complete!")
     elif action == "show_cache":
         show_hf_cache.remote()
     else:
         print(f"Unknown action: {action}")
-        print("Options: train, show_cache")
+        print("Options: rl-single, rl-multi, sft, smoke-rl, smoke-sft, show_cache")
