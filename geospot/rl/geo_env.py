@@ -45,7 +45,7 @@ class GeoEnvConfig:
     prompt_template: str = DEFAULT_GEO_PROMPT
     reward_config: GeoRewardConfig | None = None
     max_image_size: int = 512
-    format_coef: float = 0.1  # Penalty for format errors
+    format_coef: float = 0.0  # Optional extra penalty for format errors
 
 
 class GeoEnv(Env):
@@ -103,9 +103,11 @@ class GeoEnv(Env):
             config=self.config.reward_config,
         )
 
-        # Format penalty: -0.1 if unparseable, else reward
+        # Use reward_config.format_penalty; optionally apply extra penalty here.
         format_valid = float(parse_success and reward_result.format_valid)
-        total_reward = self.config.format_coef * (format_valid - 1) + reward_result.total_reward
+        total_reward = reward_result.total_reward
+        if not format_valid and self.config.format_coef:
+            total_reward -= self.config.format_coef
 
         metrics = reward_result.to_metrics()
         metrics["format"] = format_valid

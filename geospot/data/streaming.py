@@ -2,10 +2,11 @@
 Streaming data loading for geolocation datasets.
 
 Supports:
-- sdan/geomix (default, has train/val splits)
-- sdan/geospot-unified (legacy)
+- osv5m/osv5m (5M streetview images, HuggingFace datasets format)
+- sdan/geomix (webdataset format with train/val splits)
+- sdan/geospot-unified (legacy webdataset)
 
-Uses webdataset for efficient streaming without resolving all files upfront.
+Uses webdataset for tar-based datasets, HuggingFace datasets for others.
 """
 
 import logging
@@ -18,13 +19,24 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Dataset configs: repo -> (manifest_name, base_path)
+# Dataset configs: repo -> format info
+# "webdataset" format uses .tar shards, "hf" uses HuggingFace datasets
 DATASET_CONFIGS = {
+    "osv5m/osv5m": {
+        "format": "hf",
+        "image_column": "image",
+        "lat_column": "latitude",
+        "lon_column": "longitude",
+        "country_column": "country",
+        "city_column": None,  # OSV-5M doesn't have city
+    },
     "sdan/geomix": {
+        "format": "webdataset",
         "train": "train_shards.txt",
         "val": "val_shards.txt",
     },
     "sdan/geospot-unified": {
+        "format": "webdataset",
         "train": "shards.txt",
     },
 }
@@ -61,7 +73,7 @@ def get_shard_urls(
 
     Args:
         local_path: If provided, read shards from this local directory instead of HuggingFace.
-                    e.g., "/root/.cache/user_artifacts/geomix" for Baseten cache.
+                    e.g., "/cache/osv5m" for Modal volume.
     """
     import glob as globmod
 
@@ -132,7 +144,7 @@ def _try_load_manifest(url: str) -> list[str] | None:
 
 
 def iterate_samples(
-    hf_repo: str = "sdan/geomix",
+    hf_repo: str = "osv5m/osv5m",
     split: str = "train",
     max_shards: int | None = None,
     seed: int = 0,
@@ -140,12 +152,118 @@ def iterate_samples(
     max_image_size: int = 512,
     local_path: str | None = None,
 ) -> Iterator[GeoSample]:
-    """Stream GeoSamples using webdataset for efficient streaming.
+    """Stream GeoSamples from various dataset formats.
+
+    Auto-detects format based on hf_repo:
+    - osv5m/osv5m: HuggingFace datasets (streaming)
+    - sdan/geomix: webdataset (.tar shards)
 
     Args:
         local_path: If provided, read from local cache instead of HuggingFace.
-                    e.g., "$BT_PROJECT_CACHE_DIR/geomix" for Baseten.
+                    e.g., "/cache/osv5m" for Modal.
     """
+    config = DATASET_CONFIGS.get(hf_repo, {"format": "webdataset"})
+    dataset_format = config.get("format", "webdataset")
+
+    if dataset_format == "hf":
+        yield from _iterate_hf_samples(
+            hf_repo=hf_repo,
+            split=split,
+            seed=seed,
+            shuffle_buffer=shuffle_buffer,
+            max_image_size=max_image_size,
+            config=config,
+        )
+    else:
+        yield from _iterate_webdataset_samples(
+            hf_repo=hf_repo,
+            split=split,
+            max_shards=max_shards,
+            seed=seed,
+            shuffle_buffer=shuffle_buffer,
+            max_image_size=max_image_size,
+            local_path=local_path,
+        )
+
+
+def _iterate_hf_samples(
+    hf_repo: str,
+    split: str,
+    seed: int,
+    shuffle_buffer: int,
+    max_image_size: int,
+    config: dict,
+) -> Iterator[GeoSample]:
+    """Stream samples from HuggingFace datasets (e.g., osv5m/osv5m)."""
+    from datasets import load_dataset
+
+    logger.info(
+        "Loading %s (%s) via HuggingFace datasets streaming (streaming=True)...",
+        hf_repo,
+        split,
+    )
+
+    # Load with streaming for memory efficiency
+    ds = load_dataset(hf_repo, split=split, streaming=True, trust_remote_code=True)
+    ds = ds.shuffle(seed=seed, buffer_size=shuffle_buffer)
+
+    image_col = config.get("image_column", "image")
+    lat_col = config.get("lat_column", "latitude")
+    lon_col = config.get("lon_column", "longitude")
+    country_col = config.get("country_column")
+    city_col = config.get("city_column")
+
+    for idx, sample in enumerate(ds):
+        try:
+            image = sample.get(image_col)
+            if image is None:
+                continue
+
+            # Handle PIL image or bytes
+            if isinstance(image, bytes):
+                import io
+                image = Image.open(io.BytesIO(image))
+            elif not isinstance(image, Image.Image):
+                continue
+
+            if image.mode in ("RGBA", "LA", "P"):
+                image = image.convert("RGB")
+
+            if max_image_size:
+                image = _resize_and_crop(image, max_image_size, random_crop=True)
+
+            lat = float(sample.get(lat_col, 0))
+            lon = float(sample.get(lon_col, 0))
+
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+
+            if idx == 0:
+                logger.info("Received first streamed sample from %s (%s).", hf_repo, split)
+
+            yield GeoSample(
+                image=image,
+                lat=lat,
+                lon=lon,
+                city=sample.get(city_col) if city_col else None,
+                country=sample.get(country_col) if country_col else None,
+                source=hf_repo,
+            )
+        except Exception as e:
+            logger.debug(f"Skipping sample: {e}")
+            continue
+
+
+def _iterate_webdataset_samples(
+    hf_repo: str,
+    split: str,
+    max_shards: int | None,
+    seed: int,
+    shuffle_buffer: int,
+    max_image_size: int,
+    local_path: str | None,
+) -> Iterator[GeoSample]:
+    """Stream samples from webdataset (.tar shards)."""
     urls = get_shard_urls(hf_repo, split=split, max_shards=max_shards, seed=seed, local_path=local_path)
 
     def warn_and_continue(exn):
@@ -154,7 +272,12 @@ def iterate_samples(
 
     # webdataset streams directly without resolving all files
     dataset = (
-        wds.WebDataset(urls, shardshuffle=100, handler=warn_and_continue)
+        wds.WebDataset(
+            urls,
+            shardshuffle=100,
+            handler=warn_and_continue,
+            empty_check=False,
+        )
         .shuffle(shuffle_buffer)
         .decode("pil", handler=warn_and_continue)
     )
@@ -184,7 +307,13 @@ def _resize_and_crop(image: Image.Image, target_size: int, random_crop: bool = T
 def _parse_sample(sample: dict, max_image_size: int) -> GeoSample | None:
     """Parse a webdataset sample into a GeoSample."""
     try:
-        image = sample.get("jpg") or sample.get("png")
+        image = (
+            sample.get("jpg")
+            or sample.get("jpeg")
+            or sample.get("png")
+            or sample.get("webp")
+            or sample.get("image")
+        )
         if image is None:
             return None
 

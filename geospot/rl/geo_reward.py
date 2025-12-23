@@ -24,6 +24,17 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
 
 
+def _country_name_from_iso2(code: str | None) -> str | None:
+    if not code:
+        return None
+    try:
+        import pycountry
+    except ImportError:
+        return code
+    country = pycountry.countries.get(alpha_2=code.upper())
+    return country.name if country else code
+
+
 class GeoLocation(NamedTuple):
     """Geographic location with optional hierarchy."""
 
@@ -86,8 +97,9 @@ class ReverseGeocoder:
             return {"country": None, "region": None, "city": None}
 
         result = results[0]
+        country_code = result.get("cc")
         return {
-            "country": result.get("cc"),       # ISO-2 country code
+            "country": _country_name_from_iso2(country_code),
             "region": result.get("admin1"),    # State/province
             "city": result.get("name"),        # Nearest city
         }
@@ -110,8 +122,9 @@ class ReverseGeocoder:
 
         results = self._rg.search(valid_pairs)
         for i, r in zip(valid_indices, results, strict=True):
+            country_code = r.get("cc")
             out[i] = {
-                "country": r.get("cc"),
+                "country": _country_name_from_iso2(country_code),
                 "region": r.get("admin1"),
                 "city": r.get("name"),
             }

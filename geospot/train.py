@@ -41,10 +41,10 @@ class CLIConfig:
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geomix"
+    hf_repo: str = "osv5m/osv5m"
     max_shards: int | None = None
     max_steps: int = 100
-    local_path: str | None = None  # Local cache path (e.g., Baseten: $BT_PROJECT_CACHE_DIR/geomix)
+    local_path: str | None = None  # Local cache path (e.g., Modal volume: /cache/osv5m)
 
     # Training
     batch_size: int = 128
