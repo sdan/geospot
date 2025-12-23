@@ -33,6 +33,7 @@ from geospot.data_processing import (
     remove_constant_reward_groups,
 )
 from geospot.datasets import iterate_samples, GeoSample
+from geospot.eval import run_eval, eval_result_to_dict
 from geospot.envs import (
     # Single-turn
     SingleTurnGeoEnv,
@@ -182,6 +183,10 @@ class Config:
     # Checkpointing
     save_every: int = 25
     load_checkpoint_path: str | None = None
+
+    # Evaluation
+    eval_every: int = 10  # Run eval every N steps (0 to disable)
+    eval_samples: int = 100  # Number of test samples for eval
 
     # Misc
     seed: int = 0
@@ -390,6 +395,24 @@ async def run_training(cfg: Config):
                 "step": step, "reward/mean": mean_reward, "distance_km/mean": mean_dist,
                 "datums": len(datums_clean), "skipped_uniform": skipped, "time_s": elapsed,
             })
+
+        # Periodic evaluation on test set
+        if cfg.eval_every > 0 and step > 0 and step % cfg.eval_every == 0:
+            logger.info(f"Running eval on {cfg.eval_samples} test samples...")
+            eval_result = await run_eval(
+                sampling_client=sampling_client,
+                renderer=renderer,
+                hf_repo=cfg.hf_repo,
+                split="test",
+                num_samples=cfg.eval_samples,
+                max_tokens=cfg.max_tokens,
+            )
+            logger.info(
+                f"Eval: dist={eval_result.mean_distance_km:.0f}km, "
+                f"score={eval_result.mean_score:.0f}, acc@25km={eval_result.acc_25km:.1%}"
+            )
+            if cfg.wandb_project:
+                wandb.log(eval_result_to_dict(eval_result))
 
         if cfg.save_every > 0 and step > 0 and step % cfg.save_every == 0:
             training_client.save_state(name=f"step_{step:06d}").result()

@@ -317,13 +317,21 @@ def main(cli: CLIConfig):
 
         fwd_bwd_future = training_client.forward_backward(batch, loss_fn="cross_entropy")
         optim_future = training_client.optim_step(tinker.AdamParams(learning_rate=lr))
-        result = fwd_bwd_future.result()
+        fwd_bwd_result = fwd_bwd_future.result()
         optim_future.result()
+
+        # Compute training loss (NLL)
+        logprobs = [x["logprobs"].to_torch() for x in fwd_bwd_result.loss_fn_outputs]
+        weights = [d.loss_fn_inputs["weights"].to_torch() for d in batch]
+        total_weighted_lp = sum(lp.dot(w) for lp, w in zip(logprobs, weights))
+        total_weights = sum(w.sum() for w in weights)
+        train_nll = float(-total_weighted_lp / total_weights) if total_weights > 0 else float("nan")
 
         # Log
         num_tokens = sum(d.model_input.length for d in batch)
+        num_loss_tokens = int(total_weights.item())
         elapsed = time.time() - t_start
-        logger.info(f"Step {step}: tokens={num_tokens}, lr={lr:.2e}, time={elapsed:.1f}s")
+        logger.info(f"Step {step}: nll={train_nll:.3f}, tokens={num_tokens}, lr={lr:.2e}, time={elapsed:.1f}s")
 
         # Log to viz DB
         db.log_step(
@@ -338,7 +346,9 @@ def main(cli: CLIConfig):
         if cli.wandb_project:
             wandb.log({
                 "step": step,
-                "tokens": num_tokens,
+                "train/nll": train_nll,
+                "train/tokens": num_tokens,
+                "train/loss_tokens": num_loss_tokens,
                 "learning_rate": lr,
                 "time_s": elapsed,
             })
