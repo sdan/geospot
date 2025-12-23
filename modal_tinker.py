@@ -56,6 +56,7 @@ COMMON_ARGS = {
     "group_size": 8,
     "learning_rate": 4e-5,
     "save_every": 25,
+    "env_type": "single",  # "single" or "multi"
     "behavior_if_log_dir_exists": "delete",
 }
 
@@ -81,11 +82,12 @@ def _run_with_repo(cmd: list[str]):
 
 
 def _build_train_cmd(extra_args: dict | None = None) -> list[str]:
-    """Build training command using cookbook entry point."""
+    """Build training command using train_rl entry point."""
     cmd = [
-        "python", "-m", "geospot.cookbook.train",
+        "python", "-m", "geospot.train_rl",
         "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
         "hf_repo=osv5m/osv5m",
+        f"env_type={COMMON_ARGS['env_type']}",
         f"max_steps={COMMON_ARGS['max_steps']}",
         f"batch_size={COMMON_ARGS['batch_size']}",
         f"group_size={COMMON_ARGS['group_size']}",

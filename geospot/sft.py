@@ -1,21 +1,25 @@
 """
 SFT warm-start for geospot VLM.
+
+Run:
+    uv run python -m geospot.sft hf_repo=osv5m/osv5m
 """
 
 import logging
 import os
+import shutil
 import time
 import uuid
 from datetime import datetime
-from typing import Iterator
+from functools import cache
+from typing import Literal
 
 import chz
 import tinker
 import torch
 
-from geospot.cli_utils import check_log_dir, LogdirBehavior
 from geospot.db import DBWriter
-from geospot.data import GeoSample, iterate_samples
+from geospot.datasets import GeoSample, iterate_samples
 from geospot.renderers import (
     ImagePart,
     Message,
@@ -23,11 +27,26 @@ from geospot.renderers import (
     TrainOnWhat,
     get_renderer,
 )
-from geospot.tokenizer_utils import get_tokenizer
-from geospot.image_processing_utils import get_image_processor
-from geospot.rl.geo_env import DEFAULT_GEO_PROMPT
+from geospot.envs import DEFAULT_GEO_PROMPT
 
 logger = logging.getLogger(__name__)
+
+
+# Inlined from deleted files
+@cache
+def get_tokenizer(model_name: str):
+    from transformers import AutoTokenizer
+    kwargs = {"trust_remote_code": True} if "qwen" in model_name.lower() else {}
+    return AutoTokenizer.from_pretrained(model_name, use_fast=True, **kwargs)
+
+
+@cache
+def get_image_processor(model_name: str):
+    from transformers import AutoImageProcessor
+    return AutoImageProcessor.from_pretrained(model_name, use_fast=True)
+
+
+LogdirBehavior = Literal["delete", "resume", "ask", "raise"]
 
 
 def _create_rightshifted_model_input_and_leftshifted_targets(
@@ -160,8 +179,7 @@ class CLIConfig:
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geomix"
-    max_shards: int | None = None
+    hf_repo: str = "osv5m/osv5m"
     max_steps: int = 1000
 
     # Training
@@ -197,7 +215,18 @@ def main(cli: CLIConfig):
         timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
         log_path = f"/tmp/geospot-sft/{model_name}-{timestamp}"
 
-    check_log_dir(log_path, behavior_if_exists=cli.behavior_if_log_dir_exists)
+    # Handle existing log dir
+    if os.path.exists(log_path):
+        if cli.behavior_if_log_dir_exists == "delete":
+            shutil.rmtree(log_path)
+        elif cli.behavior_if_log_dir_exists == "raise":
+            raise ValueError(f"Log dir exists: {log_path}")
+        elif cli.behavior_if_log_dir_exists == "ask":
+            resp = input(f"Log dir {log_path} exists. [delete/resume/exit]: ")
+            if resp == "delete":
+                shutil.rmtree(log_path)
+            elif resp == "exit":
+                return
     os.makedirs(log_path, exist_ok=True)
 
     logger.info(f"SFT warm-start: {cli.hf_repo} -> {log_path}")
@@ -210,7 +239,6 @@ def main(cli: CLIConfig):
     def make_sample_iter(seed: int):
         return iterate_samples(
             hf_repo=cli.hf_repo,
-            max_shards=cli.max_shards,
             seed=seed,
             shuffle_buffer=cli.shuffle_buffer,
         )

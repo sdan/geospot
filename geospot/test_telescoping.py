@@ -4,7 +4,7 @@ Smoke test for the telescoping geo environment.
 
 Run with:
     cd /Users/sdan/Developer/geospot-vlm
-    python -m geospot.rl.test_telescoping
+    python -m geospot.test_telescoping
 """
 
 import asyncio
@@ -30,8 +30,8 @@ class MockRenderer:
 
 
 async def test_env_episode():
-    from geospot.rl.geo_reward import GeoLocation
-    from geospot.rl.telescoping_geo_env import TelescopingGeoEnv, TelescopingGeoEnvConfig
+    from geospot.geo_reward import GeoLocation
+    from geospot.envs import TelescopingGeoEnv, TelescopingGeoEnvConfig
 
     image = Image.fromarray(np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8))
     ground_truth = GeoLocation(lat=-23.55, lon=-46.63)
@@ -68,4 +68,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

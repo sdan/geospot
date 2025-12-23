@@ -4,16 +4,17 @@ import io
 import logging
 import urllib.request
 from enum import StrEnum
-from typing import NotRequired, Optional, TypedDict, Literal, Protocol, cast
+from typing import Any, NotRequired, Optional, TypedDict, Literal, Protocol, cast
 
 import tinker
 import torch
 from PIL import Image
 
-from geospot.tokenizer_utils import Tokenizer
-from geospot.image_processing_utils import ImageProcessor
-
 logger = logging.getLogger(__name__)
+
+# Type aliases (actual types come from transformers at runtime)
+Tokenizer = Any
+ImageProcessor = Any
 
 
 class TextPart(TypedDict):
