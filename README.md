@@ -31,31 +31,15 @@ Start with a large distance scale (τ=2000km) and gradually decrease it (→25km
 reward = exp(-distance_km / τ)
 ```
 
-### Multi-Turn Geohash Curriculum (NEW)
+### Telescoping Multi-Turn RL
 
-A 3-turn approach using geohash precision levels. Each turn asks for progressively more precise coordinates:
-
-| Turn | Precision | Geohash Chars | Approx. Accuracy |
-|------|-----------|---------------|------------------|
-| 1 | Coarse | 2 | ~600km |
-| 2 | Medium | 4 | ~40km |
-| 3 | Fine | 6 | ~1km |
-
-**How it works:**
-- Turn 1: "Where is this? Give an approximate estimate." → Model predicts rough coords
-- Turn 2: "Your initial guess was (X, Y). Refine your estimate." → Model refines
-- Turn 3: "Your refined guess was (X, Y). Give final coordinates." → Final prediction
-
-**Reward:** Geohash prefix matching + improvement bonus when predictions get closer.
-
-**Teacher Forcing:** Configurable probability (0.0-1.0) to show ground truth hints vs model's own predictions between turns. TF=0.5 gives a balanced mix.
+One multi-turn policy: coarse → refine → final. Each turn predicts coordinates and
+gets a dense, potential-based reward so the sum equals the final score.
 
 ```bash
-# Run multi-turn curriculum training
-python -m geospot.train_geohash_curriculum max_samples=5000
+# Run RL (telescoping env)
+python -m geospot.train_rl env_type=telescoping
 ```
-
-**Why geohash?** No need for country/region text labels. Purely spatial, mathematically precise. Works with any lat/lon dataset.
 
 ### Training Pipeline
 
@@ -77,7 +61,7 @@ export TINKER_API_KEY=...
 # sft
 uv run python -m geospot.sft model_name=Qwen/Qwen2.5-VL-3B-Instruct max_steps=50
 # grpo
-uv run python -m geospot.train load_checkpoint_path=tinker://
+uv run python -m geospot.train_rl env_type=telescoping load_checkpoint_path=tinker://
 ```
 
 ## Data

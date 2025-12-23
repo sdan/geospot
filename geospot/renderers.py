@@ -4,16 +4,17 @@ import io
 import logging
 import urllib.request
 from enum import StrEnum
-from typing import NotRequired, Optional, TypedDict, Literal, Protocol, cast
+from typing import Any, NotRequired, Optional, TypedDict, Literal, Protocol, cast
 
 import tinker
 import torch
 from PIL import Image
 
-from geospot.tokenizer_utils import Tokenizer
-from geospot.image_processing_utils import ImageProcessor
-
 logger = logging.getLogger(__name__)
+
+# Type aliases (actual types come from transformers at runtime)
+Tokenizer = Any
+ImageProcessor = Any
 
 
 class TextPart(TypedDict):
@@ -58,6 +59,13 @@ def ensure_text(content: Content) -> str:
     return " ".join(part["text"] for part in content if part["type"] == "text")
 
 
+def _is_empty_chunk(chunk: tinker.types.ModelInputChunk) -> bool:
+    """Check if a chunk has no tokens (would cause Tinker BadRequestError)."""
+    if isinstance(chunk, tinker.types.EncodedTextChunk):
+        return len(chunk.tokens) == 0
+    return False
+
+
 class Renderer(Protocol):
     """Render messages into model inputs."""
 
@@ -95,18 +103,18 @@ class Renderer(Protocol):
         for idx, message in enumerate(messages):
             rendered = self.render_message(idx, message)
             if ob := rendered.get("prefix"):
-                chunks.append(ob)
-            chunks.extend([x for x in rendered["content"] if x])
+                if not _is_empty_chunk(ob):
+                    chunks.append(ob)
+            chunks.extend([x for x in rendered["content"] if x and not _is_empty_chunk(x)])
         new_msg = Message(role=role, content="")
         rendered = self.render_message(len(messages), new_msg)
         if ob := rendered.get("prefix"):
-            chunks.append(ob)
+            if not _is_empty_chunk(ob):
+                chunks.append(ob)
         if prefill:
-            chunks.append(
-                tinker.types.EncodedTextChunk(
-                    tokens=self.tokenizer.encode(prefill, add_special_tokens=False)
-                )
-            )
+            tokens = self.tokenizer.encode(prefill, add_special_tokens=False)
+            if tokens:
+                chunks.append(tinker.types.EncodedTextChunk(tokens=tokens))
         return tinker.ModelInput(chunks=chunks)
 
     def build_supervised_example(
@@ -127,7 +135,8 @@ class Renderer(Protocol):
 
             ob_weight = int(train_on_what == TrainOnWhat.ALL_TOKENS)
             if ob := rendered.get("prefix"):
-                chunks_weights.append((ob, ob_weight))
+                if not _is_empty_chunk(ob):
+                    chunks_weights.append((ob, ob_weight))
 
             match train_on_what:
                 case TrainOnWhat.LAST_ASSISTANT_MESSAGE:
@@ -142,7 +151,7 @@ class Renderer(Protocol):
                     raise ValueError(f"Unknown train_on_what: {train_on_what}")
 
             for part in rendered.get("content", []):
-                if part:
+                if part and not _is_empty_chunk(part):
                     chunks_weights.append((part, int(has_weight)))
 
             if is_last and (tail := rendered.get("suffix")):

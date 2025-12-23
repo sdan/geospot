@@ -1,21 +1,26 @@
 """
 SFT warm-start for geospot VLM.
+
+Run:
+    uv run python -m geospot.sft hf_repo=osv5m/osv5m
 """
 
 import logging
 import os
+import shutil
 import time
 import uuid
 from datetime import datetime
-from typing import Iterator
+from functools import cache
+from typing import Literal
 
 import chz
 import tinker
 import torch
+import wandb
 
-from geospot.cli_utils import check_log_dir, LogdirBehavior
 from geospot.db import DBWriter
-from geospot.data import GeoSample, iterate_samples
+from geospot.datasets import GeoSample, iterate_samples
 from geospot.renderers import (
     ImagePart,
     Message,
@@ -23,11 +28,26 @@ from geospot.renderers import (
     TrainOnWhat,
     get_renderer,
 )
-from geospot.tokenizer_utils import get_tokenizer
-from geospot.image_processing_utils import get_image_processor
-from geospot.rl.geo_env import DEFAULT_GEO_PROMPT
+from geospot.envs import SINGLE_TURN_PROMPT
 
 logger = logging.getLogger(__name__)
+
+
+# Inlined from deleted files
+@cache
+def get_tokenizer(model_name: str):
+    from transformers import AutoTokenizer
+    kwargs = {"trust_remote_code": True} if "qwen" in model_name.lower() else {}
+    return AutoTokenizer.from_pretrained(model_name, use_fast=True, **kwargs)
+
+
+@cache
+def get_image_processor(model_name: str):
+    from transformers import AutoImageProcessor
+    return AutoImageProcessor.from_pretrained(model_name, use_fast=True)
+
+
+LogdirBehavior = Literal["delete", "resume", "ask", "raise"]
 
 
 def _create_rightshifted_model_input_and_leftshifted_targets(
@@ -131,7 +151,7 @@ def sample_to_datum(
     try:
         user_content = [
             ImagePart(type="image", image=sample.image),
-            TextPart(type="text", text=DEFAULT_GEO_PROMPT),
+            TextPart(type="text", text=SINGLE_TURN_PROMPT),
         ]
         assistant_content = format_ground_truth(sample.lat, sample.lon)
 
@@ -155,13 +175,12 @@ class CLIConfig:
     """CLI config for SFT warm-start."""
 
     # Model
-    model_name: str = "Qwen/Qwen3-VL-235B-A22B-Instruct"
+    model_name: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"
     lora_rank: int = 32
     renderer_name: str = "qwen3_vl"
 
     # Data
-    hf_repo: str = "sdan/geomix"
-    max_shards: int | None = None
+    hf_repo: str = "osv5m/osv5m"
     max_steps: int = 1000
 
     # Training
@@ -172,7 +191,7 @@ class CLIConfig:
 
     # Logging
     log_path: str | None = None
-    wandb_project: str | None = None
+    wandb_project: str | None = "geospot-tinker-dec23"
 
     # Checkpointing
     save_every: int = 100
@@ -197,11 +216,42 @@ def main(cli: CLIConfig):
         timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
         log_path = f"/tmp/geospot-sft/{model_name}-{timestamp}"
 
-    check_log_dir(log_path, behavior_if_exists=cli.behavior_if_log_dir_exists)
+    # Handle existing log dir
+    if os.path.exists(log_path):
+        if cli.behavior_if_log_dir_exists == "delete":
+            shutil.rmtree(log_path)
+        elif cli.behavior_if_log_dir_exists == "raise":
+            raise ValueError(f"Log dir exists: {log_path}")
+        elif cli.behavior_if_log_dir_exists == "ask":
+            resp = input(f"Log dir {log_path} exists. [delete/resume/exit]: ")
+            if resp == "delete":
+                shutil.rmtree(log_path)
+            elif resp == "exit":
+                return
     os.makedirs(log_path, exist_ok=True)
 
     logger.info(f"SFT warm-start: {cli.hf_repo} -> {log_path}")
     logger.info(f"Model: {cli.model_name}, batch_size={cli.batch_size}, max_steps={cli.max_steps}")
+
+    if cli.wandb_project:
+        # Descriptive run name: sft-qwen3-vl-30b-a3b-osv5m
+        model_short = cli.model_name.split("/")[-1].lower().replace("-instruct", "")
+        dataset_short = cli.hf_repo.split("/")[-1]
+        run_name = f"sft-{model_short}-{dataset_short}"
+        wandb.init(
+            project=cli.wandb_project,
+            name=run_name,
+            tags=["sft", "warmstart"],
+            config={
+                "model_name": cli.model_name,
+                "hf_repo": cli.hf_repo,
+                "lora_rank": cli.lora_rank,
+                "batch_size": cli.batch_size,
+                "learning_rate": cli.learning_rate,
+                "max_steps": cli.max_steps,
+                "max_length": cli.max_length,
+            },
+        )
 
     tokenizer = get_tokenizer(cli.model_name)
     image_processor = get_image_processor(cli.model_name)
@@ -210,7 +260,6 @@ def main(cli: CLIConfig):
     def make_sample_iter(seed: int):
         return iterate_samples(
             hf_repo=cli.hf_repo,
-            max_shards=cli.max_shards,
             seed=seed,
             shuffle_buffer=cli.shuffle_buffer,
         )
@@ -268,13 +317,21 @@ def main(cli: CLIConfig):
 
         fwd_bwd_future = training_client.forward_backward(batch, loss_fn="cross_entropy")
         optim_future = training_client.optim_step(tinker.AdamParams(learning_rate=lr))
-        result = fwd_bwd_future.result()
+        fwd_bwd_result = fwd_bwd_future.result()
         optim_future.result()
+
+        # Compute training loss (NLL)
+        logprobs = [x["logprobs"].to_torch() for x in fwd_bwd_result.loss_fn_outputs]
+        weights = [d.loss_fn_inputs["weights"].to_torch() for d in batch]
+        total_weighted_lp = sum(lp.dot(w) for lp, w in zip(logprobs, weights))
+        total_weights = sum(w.sum() for w in weights)
+        train_nll = float(-total_weighted_lp / total_weights) if total_weights > 0 else float("nan")
 
         # Log
         num_tokens = sum(d.model_input.length for d in batch)
+        num_loss_tokens = int(total_weights.item())
         elapsed = time.time() - t_start
-        logger.info(f"Step {step}: tokens={num_tokens}, lr={lr:.2e}, time={elapsed:.1f}s")
+        logger.info(f"Step {step}: nll={train_nll:.3f}, tokens={num_tokens}, lr={lr:.2e}, time={elapsed:.1f}s")
 
         # Log to viz DB
         db.log_step(
@@ -285,6 +342,17 @@ def main(cli: CLIConfig):
             elapsed_s=elapsed,
         )
 
+        # Log to wandb
+        if cli.wandb_project:
+            wandb.log({
+                "step": step,
+                "train/nll": train_nll,
+                "train/tokens": num_tokens,
+                "train/loss_tokens": num_loss_tokens,
+                "learning_rate": lr,
+                "time_s": elapsed,
+            })
+
         # Checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
             training_client.save_state(name=f"step_{step:06d}").result()
@@ -293,6 +361,8 @@ def main(cli: CLIConfig):
     # Final checkpoint
     result = training_client.save_state(name="final").result()
     db.close()
+    if cli.wandb_project:
+        wandb.finish()
     logger.info("SFT complete!")
     logger.info(f"Checkpoint: {result.path}")
 
