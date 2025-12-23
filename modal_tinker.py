@@ -1,100 +1,47 @@
 """
-Modal job: Run geospot-vlm Tinker training using cached geomix data.
+Modal job: Visual geolocation RL training with Tinker API.
 
-CPU-only - Tinker API handles all GPU work remotely.
-First run probes for existing geomix cache locations.
+CPU-only orchestrator - Tinker handles GPU remotely.
+Streams OSV-5M directly from HuggingFace.
 
 Usage:
-    modal run modal_tinker.py::probe_cache  # Find where geomix is cached
-    modal run modal_tinker.py::train        # Run training
+    modal run modal_tinker.py             # Start training
+    modal run modal_tinker.py --action train
+    modal run modal_tinker.py --action show_cache
 """
 import modal
 import os
 
 app = modal.App("geospot-tinker-vlm")
 
+REPO_REMOTE_PATH = "/root/geospot-vlm"
+
 # CPU-only image - Tinker handles GPU remotely
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git")  # Required for pip install from GitHub
+    .apt_install("git")
     .pip_install(
         "tinker",
-        "webdataset",
+        "datasets",  # For OSV-5M streaming
         "pillow",
         "wandb",
         "chz",
         "huggingface_hub",
-        "torch",
-        "torchvision",
+        "numpy<2",
+        "torch==2.2.2+cpu",
+        "torchvision==0.17.2+cpu",
+        extra_index_url="https://download.pytorch.org/whl/cpu",
     )
     .pip_install("geospot-vlm @ git+https://github.com/sdan/geospot-vlm.git")
+    .add_local_dir(
+        "geospot",
+        remote_path=f"{REPO_REMOTE_PATH}/geospot",
+        ignore=["__pycache__"],
+    )
 )
 
-# Check common Modal volume mount points
-CACHE_PATHS = [
-    "/root/.cache/huggingface",
-    "/cache",
-    "/data",
-    "/vol",
-    "/mnt",
-    os.path.expanduser("~/.cache"),
-]
-
-
-@app.function(image=image, cpu=4, memory=16384, timeout=300)
-def probe_cache():
-    """Probe for existing geomix cache locations."""
-    import subprocess
-    import glob
-
-    print("=== Probing for geomix cache ===")
-    print(f"Working dir: {os.getcwd()}")
-    print(f"Home: {os.path.expanduser('~')}")
-
-    # Check environment
-    print("\n=== Environment ===")
-    for key in sorted(os.environ.keys()):
-        if any(x in key.lower() for x in ['cache', 'hf', 'home', 'data', 'vol']):
-            print(f"  {key}={os.environ[key]}")
-
-    # Check common paths
-    print("\n=== Checking paths ===")
-    for path in CACHE_PATHS:
-        if os.path.exists(path):
-            print(f"\n✓ {path} exists")
-            try:
-                result = subprocess.run(
-                    ["find", path, "-name", "*.tar", "-type", "f"],
-                    capture_output=True, text=True, timeout=30
-                )
-                tar_files = [f for f in result.stdout.strip().split('\n') if f]
-                if tar_files:
-                    print(f"  Found {len(tar_files)} .tar files:")
-                    for f in tar_files[:5]:
-                        print(f"    {f}")
-                    if len(tar_files) > 5:
-                        print(f"    ... and {len(tar_files) - 5} more")
-            except Exception as e:
-                print(f"  Error scanning: {e}")
-        else:
-            print(f"✗ {path} does not exist")
-
-    # Check for geomix specifically
-    print("\n=== Looking for geomix ===")
-    for pattern in ["**/geomix/**/*.tar", "**/sdan/**/*.tar", "**/*geomix*.tar"]:
-        matches = glob.glob(f"/root/{pattern}", recursive=True)
-        matches += glob.glob(f"/{pattern}", recursive=True)
-        if matches:
-            print(f"Found geomix data: {matches[:3]}")
-            return {"found": True, "paths": matches}
-
-    print("No geomix cache found - will need to set up a volume")
-    return {"found": False, "paths": []}
-
-
-# Modal volume for persistent geomix cache
-geomix_volume = modal.Volume.from_name("geomix-cache", create_if_missing=True)
-
+# HF cache volume for OSV-5M streaming cache
+hf_cache_volume = modal.Volume.from_name("hf-cache", create_if_missing=True)
 
 TRAIN_SECRETS = [
     modal.Secret.from_name("tinker-api-key"),
@@ -102,35 +49,55 @@ TRAIN_SECRETS = [
     modal.Secret.from_name("hf-token"),
 ]
 
+# Training hyperparameters
 COMMON_ARGS = {
-    "max_steps": 1000,
+    "max_steps": 100,
     "batch_size": 64,
     "group_size": 8,
     "learning_rate": 4e-5,
-    "save_every": 50,
+    "save_every": 25,
+    "behavior_if_log_dir_exists": "delete",
+}
+
+SMOKE_ARGS = {
+    "max_steps": 2,
+    "batch_size": 2,
+    "group_size": 2,
+    "hf_repo": "osv5m/osv5m",
+    "wandb_project": "None",
+    "save_every": 0,
+    "behavior_if_log_dir_exists": "delete",
 }
 
 
-def _ensure_cache(cache_path: str):
-    """Ensure geomix is cached, download if needed."""
+def _run_with_repo(cmd: list[str]):
+    """Run a command with the local repo path first on PYTHONPATH."""
     import subprocess
-    import glob
 
-    tar_files = glob.glob(f"{cache_path}/**/*.tar", recursive=True)
-    print(f"Found {len(tar_files)} cached shards in {cache_path}")
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{REPO_REMOTE_PATH}:{existing}" if existing else REPO_REMOTE_PATH
+    subprocess.run(cmd, check=True, env=env)
 
-    if len(tar_files) < 1000:
-        print("Downloading geomix...")
-        subprocess.run([
-            "huggingface-cli", "download", "sdan/geomix",
-            "--repo-type", "dataset",
-            "--local-dir", cache_path,
-        ], check=True)
-        geomix_volume.commit()
-        tar_files = glob.glob(f"{cache_path}/**/*.tar", recursive=True)
-        print(f"Downloaded {len(tar_files)} shards")
 
-    return len(tar_files)
+def _build_train_cmd(extra_args: dict | None = None) -> list[str]:
+    """Build training command using cookbook entry point."""
+    cmd = [
+        "python", "-m", "geospot.cookbook.train",
+        "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
+        "hf_repo=osv5m/osv5m",
+        f"max_steps={COMMON_ARGS['max_steps']}",
+        f"batch_size={COMMON_ARGS['batch_size']}",
+        f"group_size={COMMON_ARGS['group_size']}",
+        f"learning_rate={COMMON_ARGS['learning_rate']}",
+        f"save_every={COMMON_ARGS['save_every']}",
+        "wandb_project=geospot-tinker",
+        f"behavior_if_log_dir_exists={COMMON_ARGS['behavior_if_log_dir_exists']}",
+    ]
+    if extra_args:
+        for k, v in extra_args.items():
+            cmd.append(f"{k}={v}")
+    return cmd
 
 
 @app.function(
@@ -138,202 +105,70 @@ def _ensure_cache(cache_path: str):
     cpu=8,
     memory=32768,
     timeout=3600 * 24,  # 24 hours
-    volumes={"/cache/geomix": geomix_volume},
+    volumes={"/root/.cache/huggingface": hf_cache_volume},
     secrets=TRAIN_SECRETS,
 )
-def train_single_step():
-    """Run single-step GeoEnv training."""
-    import subprocess
-
-    cache_path = "/cache/geomix"
-    _ensure_cache(cache_path)
-
-    cmd = [
-        "python", "-m", "geospot.train",
-        "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
-        f"local_path={cache_path}",
-        f"max_steps={COMMON_ARGS['max_steps']}",
-        f"batch_size={COMMON_ARGS['batch_size']}",
-        f"group_size={COMMON_ARGS['group_size']}",
-        f"learning_rate={COMMON_ARGS['learning_rate']}",
-        f"save_every={COMMON_ARGS['save_every']}",
-        "wandb_project=geospot-tinker",
-    ]
+def train(extra_args: dict | None = None):
+    """Run visual geolocation RL training with OSV-5M."""
+    cmd = _build_train_cmd(extra_args=extra_args)
     print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+    _run_with_repo(cmd)
+    hf_cache_volume.commit()
 
 
 @app.function(
     image=image,
-    cpu=8,
-    memory=32768,
-    timeout=3600 * 24,
-    volumes={"/cache/geomix": geomix_volume},
-    secrets=TRAIN_SECRETS,
+    cpu=2,
+    memory=4096,
+    timeout=300,
+    volumes={"/root/.cache/huggingface": hf_cache_volume},
 )
-def train_hierarchical():
-    """Run hierarchical (country -> coords) training."""
-    import subprocess
+def show_hf_cache(max_entries: int = 50):
+    """List HuggingFace cache contents in the persistent volume."""
+    import pathlib
 
-    cache_path = "/cache/geomix"
-    _ensure_cache(cache_path)
+    cache_root = "/root/.cache/huggingface"
+    if not os.path.exists(cache_root):
+        print(f"No cache dir at {cache_root}")
+        return
 
-    cmd = [
-        "python", "-m", "geospot.train_hierarchical",
-        "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
-        f"local_path={cache_path}",
-        f"max_steps={COMMON_ARGS['max_steps']}",
-        f"batch_size={COMMON_ARGS['batch_size']}",
-        f"group_size={COMMON_ARGS['group_size']}",
-        f"learning_rate={COMMON_ARGS['learning_rate']}",
-        f"save_every={COMMON_ARGS['save_every']}",
-        "wandb_project=geospot-tinker",
-    ]
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+    files = []
+    for path in pathlib.Path(cache_root).rglob("*"):
+        if path.is_file():
+            try:
+                files.append((path.stat().st_size, str(path)))
+            except OSError:
+                continue
 
-
-@app.function(
-    image=image,
-    cpu=8,
-    memory=32768,
-    timeout=3600 * 24,
-    volumes={"/cache/geomix": geomix_volume},
-    secrets=TRAIN_SECRETS,
-)
-def train_curriculum():
-    """Run curriculum (geohash 3-turn) training."""
-    import subprocess
-
-    cache_path = "/cache/geomix"
-    _ensure_cache(cache_path)
-
-    cmd = [
-        "python", "-m", "geospot.train_curriculum",
-        "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
-        f"local_path={cache_path}",
-        f"max_steps={COMMON_ARGS['max_steps']}",
-        f"batch_size={COMMON_ARGS['batch_size']}",
-        f"group_size={COMMON_ARGS['group_size']}",
-        f"learning_rate={COMMON_ARGS['learning_rate']}",
-        f"save_every={COMMON_ARGS['save_every']}",
-        "wandb_project=geospot-tinker",
-    ]
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-
-
-@app.function(
-    image=image,
-    cpu=8,
-    memory=32768,
-    timeout=3600 * 24,
-    volumes={"/cache/geomix": geomix_volume},
-    secrets=TRAIN_SECRETS,
-)
-def train_telescoping():
-    """Run telescoping (potential-based) training."""
-    import subprocess
-
-    cache_path = "/cache/geomix"
-    _ensure_cache(cache_path)
-
-    cmd = [
-        "python", "-m", "geospot.train_telescoping",
-        "model_name=Qwen/Qwen3-VL-30B-A3B-Instruct",
-        f"local_path={cache_path}",
-        f"max_steps={COMMON_ARGS['max_steps']}",
-        f"batch_size={COMMON_ARGS['batch_size']}",
-        f"group_size={COMMON_ARGS['group_size']}",
-        f"learning_rate={COMMON_ARGS['learning_rate']}",
-        f"save_every={COMMON_ARGS['save_every']}",
-        "wandb_project=geospot-tinker",
-    ]
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-
-
-@app.function(
-    image=image,
-    cpu=8,
-    memory=32768,
-    timeout=3600 * 12,  # 12 hours for full download
-    volumes={"/cache/geomix": geomix_volume},
-    secrets=[modal.Secret.from_name("hf-token")],
-)
-def download_geomix():
-    """Download full geomix dataset (~2TB) to Modal volume."""
-    import subprocess
-    import glob
-    import os
-
-    cache_path = "/cache/geomix"
-    os.makedirs(cache_path, exist_ok=True)
-
-    # Check existing
-    tar_files = glob.glob(f"{cache_path}/**/*.tar", recursive=True)
-    print(f"Existing shards: {len(tar_files)}")
-
-    if len(tar_files) >= 14000:
-        print("Dataset already cached!")
-        return len(tar_files)
-
-    print("Downloading full geomix dataset...")
-    print("This will take a while (~2TB)...")
-
-    # Use huggingface-cli for resumable download
-    subprocess.run([
-        "huggingface-cli", "download", "sdan/geomix",
-        "--repo-type", "dataset",
-        "--local-dir", cache_path,
-    ], check=True)
-
-    # Commit to volume
-    geomix_volume.commit()
-
-    tar_files = glob.glob(f"{cache_path}/**/*.tar", recursive=True)
-    print(f"Download complete! {len(tar_files)} shards cached.")
-    return len(tar_files)
+    files.sort(reverse=True)
+    total_bytes = sum(size for size, _ in files)
+    print(f"Total files: {len(files)}")
+    print(f"Total size: {total_bytes / (1024 ** 3):.2f} GB")
+    print(f"Top {min(max_entries, len(files))} files:")
+    for size, path in files[:max_entries]:
+        print(f"{size / (1024 ** 2):8.2f} MB  {path}")
 
 
 @app.local_entrypoint()
-def main(action: str = "download"):
+def main(action: str = "train"):
     """
     Entry point for modal run.
 
     Usage:
-        modal run modal_tinker.py  # downloads geomix (default)
-        modal run modal_tinker.py --action download
-        modal run modal_tinker.py --action probe
-        modal run modal_tinker.py --action train_all
+        modal run modal_tinker.py                   # train (default)
+        modal run modal_tinker.py --action train
+        modal run modal_tinker.py --action show_cache
     """
-    if action == "download":
-        print("Starting geomix download to Modal volume...")
-        result = download_geomix.remote()
-        print(f"\nDone! {result} shards cached.")
-    elif action == "probe":
-        result = probe_cache.remote()
-        print(f"\nResult: {result}")
-    elif action == "train_all":
-        print("Starting all 4 training runs in parallel...")
-        handles = [
-            train_single_step.spawn(),
-            train_hierarchical.spawn(),
-            train_curriculum.spawn(),
-            train_telescoping.spawn(),
-        ]
-        for i, h in enumerate(handles):
-            h.get()
-            print(f"Training {i+1}/4 complete")
-        print("All training complete!")
-    elif action == "train_single":
-        train_single_step.remote()
-    elif action == "train_hier":
-        train_hierarchical.remote()
-    elif action == "train_curr":
-        train_curriculum.remote()
-    elif action == "train_tele":
-        train_telescoping.remote()
+    if action == "train":
+        print("Starting visual geolocation RL training on OSV-5M...")
+        train.remote()
+        print("Training complete!")
+    elif action == "smoke":
+        print("Starting smoke run (2 steps) on OSV-5M...")
+        train.remote(extra_args=SMOKE_ARGS)
+        print("Smoke run complete!")
+    elif action == "show_cache":
+        show_hf_cache.remote()
     else:
         print(f"Unknown action: {action}")
-        print("Options: download, probe, train_all, train_single, train_hier, train_curr, train_tele")
+        print("Options: train, show_cache")
