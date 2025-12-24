@@ -143,6 +143,7 @@ def _build_cmd(module: str, args: dict, extra_args: dict | None = None) -> list[
     cpu=8,
     memory=32768,
     timeout=3600 * 24,  # 24 hours
+    retries=modal.Retries(max_retries=3, backoff_coefficient=2.0, initial_delay=60.0),
     volumes={"/root/.cache/huggingface": hf_cache_volume},
     secrets=TRAIN_SECRETS,
 )
@@ -159,6 +160,7 @@ def train_rl(extra_args: dict | None = None):
     cpu=8,
     memory=32768,
     timeout=3600 * 24,  # 24 hours
+    retries=modal.Retries(max_retries=3, backoff_coefficient=2.0, initial_delay=60.0),
     volumes={"/root/.cache/huggingface": hf_cache_volume},
     secrets=TRAIN_SECRETS,
 )
@@ -209,7 +211,7 @@ def main(action: str = "rl"):
     Entry point for modal run.
 
     Usage:
-        modal run modal_tinker.py                       # RL single-turn (default)
+        modal run modal_tinker.py --action all          # Run SFT + RL-single + RL-multi in parallel
         modal run modal_tinker.py --action rl-single    # GRPO RL single-turn
         modal run modal_tinker.py --action rl-multi     # GRPO RL multi-turn (dense rewards)
         modal run modal_tinker.py --action sft          # SFT warm-start
@@ -217,7 +219,36 @@ def main(action: str = "rl"):
         modal run modal_tinker.py --action smoke-sft    # Quick SFT test (2 steps)
         modal run modal_tinker.py --action show_cache
     """
-    if action == "rl" or action == "rl-single":
+    if action == "all":
+        print("=" * 60)
+        print("Starting ALL training runs in parallel (single Modal client)")
+        print("=" * 60)
+        print(f"\nSFT Config: {SFT_ARGS}")
+        print(f"\nRL Single Config: {RL_ARGS}")
+        print(f"\nRL Multi Config: {{**RL_ARGS, 'env_type': 'multi'}}")
+        print("\nLaunching all 3 jobs...")
+
+        # Spawn all 3 in parallel using .spawn() for non-blocking
+        sft_handle = train_sft.spawn()
+        rl_single_handle = train_rl.spawn(extra_args={"env_type": "single"})
+        rl_multi_handle = train_rl.spawn(extra_args={"env_type": "multi"})
+
+        print("\nAll jobs spawned! Waiting for completion...")
+        print("Check wandb: https://wandb.ai/sdan/geospot-tinker-dec23\n")
+
+        # Wait for all to complete
+        sft_handle.get()
+        print("✓ SFT complete!")
+        rl_single_handle.get()
+        print("✓ RL single-turn complete!")
+        rl_multi_handle.get()
+        print("✓ RL multi-turn complete!")
+
+        print("\n" + "=" * 60)
+        print("ALL TRAINING COMPLETE!")
+        print("=" * 60)
+
+    elif action == "rl" or action == "rl-single":
         print("Starting GRPO RL (single-turn) on OSV-5M...")
         print(f"Config: {RL_ARGS}")
         train_rl.remote(extra_args={"env_type": "single"})
@@ -245,4 +276,4 @@ def main(action: str = "rl"):
         show_hf_cache.remote()
     else:
         print(f"Unknown action: {action}")
-        print("Options: rl-single, rl-multi, sft, smoke-rl, smoke-sft, show_cache")
+        print("Options: all, rl-single, rl-multi, sft, smoke-rl, smoke-sft, show_cache")

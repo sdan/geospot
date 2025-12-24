@@ -5,6 +5,7 @@ Run:
     uv run python -m geospot.sft hf_repo=osv5m/osv5m
 """
 
+import asyncio
 import logging
 import os
 import shutil
@@ -19,7 +20,9 @@ import tinker
 import torch
 import wandb
 
+from geospot import checkpoint_utils
 from geospot.db import DBWriter
+from geospot.eval import run_eval, eval_result_to_dict
 from geospot.datasets import GeoSample, iterate_samples
 from geospot.renderers import (
     ImagePart,
@@ -196,6 +199,10 @@ class CLIConfig:
     # Checkpointing
     save_every: int = 100
 
+    # Evaluation
+    eval_every: int = 10  # Run eval every N steps (0 to disable)
+    eval_samples: int = 100  # Number of test samples for eval
+
     # Misc
     seed: int = 0
     base_url: str | None = None
@@ -216,19 +223,27 @@ def main(cli: CLIConfig):
         timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
         log_path = f"/tmp/geospot-sft/{model_name}-{timestamp}"
 
-    # Handle existing log dir
+    # Handle existing log dir and check for resume
+    resume_info = None
     if os.path.exists(log_path):
         if cli.behavior_if_log_dir_exists == "delete":
             shutil.rmtree(log_path)
+        elif cli.behavior_if_log_dir_exists == "resume":
+            resume_info = checkpoint_utils.get_last_checkpoint(log_path)
         elif cli.behavior_if_log_dir_exists == "raise":
             raise ValueError(f"Log dir exists: {log_path}")
         elif cli.behavior_if_log_dir_exists == "ask":
             resp = input(f"Log dir {log_path} exists. [delete/resume/exit]: ")
             if resp == "delete":
                 shutil.rmtree(log_path)
+            elif resp == "resume":
+                resume_info = checkpoint_utils.get_last_checkpoint(log_path)
             elif resp == "exit":
                 return
     os.makedirs(log_path, exist_ok=True)
+
+    # Determine starting step
+    start_step = resume_info["step"] + 1 if resume_info else 0
 
     logger.info(f"SFT warm-start: {cli.hf_repo} -> {log_path}")
     logger.info(f"Model: {cli.model_name}, batch_size={cli.batch_size}, max_steps={cli.max_steps}")
@@ -237,7 +252,7 @@ def main(cli: CLIConfig):
         # Descriptive run name: sft-qwen3-vl-30b-a3b-osv5m
         model_short = cli.model_name.split("/")[-1].lower().replace("-instruct", "")
         dataset_short = cli.hf_repo.split("/")[-1]
-        run_name = f"sft-{model_short}-{dataset_short}"
+        run_name = f"sft-{model_short}-{dataset_short}-v5-local"
         wandb.init(
             project=cli.wandb_project,
             name=run_name,
@@ -267,9 +282,17 @@ def main(cli: CLIConfig):
     sample_iter = make_sample_iter(cli.seed)
 
     service_client = tinker.ServiceClient(base_url=cli.base_url)
-    training_client = service_client.create_lora_training_client(
-        cli.model_name, rank=cli.lora_rank
-    )
+    if resume_info:
+        # Resume from checkpoint with optimizer state
+        training_client = service_client.create_training_client_from_state(
+            resume_info["state_path"]
+        )
+        training_client.load_state_with_optimizer(resume_info["state_path"]).result()
+        logger.info(f"Resumed from step {resume_info['step']}: {resume_info['state_path']}")
+    else:
+        training_client = service_client.create_lora_training_client(
+            cli.model_name, rank=cli.lora_rank
+        )
 
     # Initialize viz DB writer
     run_id = str(uuid.uuid4())[:8]
@@ -288,7 +311,7 @@ def main(cli: CLIConfig):
     )
     logger.info(f"Viz dashboard: http://localhost:3001/training-run/{run_id}")
 
-    for step in range(cli.max_steps):
+    for step in range(start_step, cli.max_steps):
         t_start = time.time()
 
         # Collect batch
@@ -353,10 +376,38 @@ def main(cli: CLIConfig):
                 "time_s": elapsed,
             })
 
+        # Periodic evaluation on test set
+        if cli.eval_every > 0 and step > 0 and step % cli.eval_every == 0:
+            logger.info(f"Running eval on {cli.eval_samples} test samples...")
+
+            async def run_eval_with_current_weights():
+                # Save weights and get sampling client
+                sampling_client = await training_client.save_weights_and_get_sampling_client_async(
+                    name=f"eval_{step:06d}"
+                )
+                return await run_eval(
+                    sampling_client=sampling_client,
+                    renderer=renderer,
+                    hf_repo=cli.hf_repo,
+                    split="test",
+                    num_samples=cli.eval_samples,
+                    seed=cli.seed + step,
+                )
+
+            eval_result = asyncio.run(run_eval_with_current_weights())
+            logger.info(
+                f"Eval: dist={eval_result.mean_distance_km:.0f}km, "
+                f"score={eval_result.mean_score:.0f}, "
+                f"acc@25km={eval_result.acc_25km:.1%}"
+            )
+            if cli.wandb_project:
+                wandb.log({"step": step, **eval_result_to_dict(eval_result)})
+
         # Checkpoint
         if cli.save_every > 0 and step > 0 and step % cli.save_every == 0:
-            training_client.save_state(name=f"step_{step:06d}").result()
-            logger.info(f"Saved checkpoint: step_{step:06d}")
+            checkpoint_utils.save_checkpoint(
+                training_client, name=f"step_{step:06d}", log_path=log_path, step=step
+            )
 
     # Final checkpoint
     result = training_client.save_state(name="final").result()

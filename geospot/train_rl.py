@@ -27,6 +27,7 @@ import tinker
 import wandb
 from tinker.types import AdamParams
 
+from geospot import checkpoint_utils
 from geospot.data_processing import (
     assemble_training_data,
     compute_advantages,
@@ -254,19 +255,27 @@ async def run_training(cfg: Config):
         model = cfg.model_name.replace("/", "-")
         log_path = f"/tmp/geospot-rl/{model}-{datetime.now().strftime('%Y-%m-%d-%H-%M')}"
 
-    # Handle existing log dir
+    # Handle existing log dir and check for resume
+    resume_info = None
     if os.path.exists(log_path):
         if cfg.behavior_if_log_dir_exists == "delete":
             shutil.rmtree(log_path)
+        elif cfg.behavior_if_log_dir_exists == "resume":
+            resume_info = checkpoint_utils.get_last_checkpoint(log_path)
         elif cfg.behavior_if_log_dir_exists == "raise":
             raise ValueError(f"Log dir exists: {log_path}")
         elif cfg.behavior_if_log_dir_exists == "ask":
             resp = input(f"Log dir {log_path} exists. [delete/resume/exit]: ")
             if resp == "delete":
                 shutil.rmtree(log_path)
+            elif resp == "resume":
+                resume_info = checkpoint_utils.get_last_checkpoint(log_path)
             elif resp == "exit":
                 return
     os.makedirs(log_path, exist_ok=True)
+
+    # Determine starting step
+    start_step = resume_info["step"] + 1 if resume_info else 0
 
     logger.info(f"GRPO Training: {cfg.hf_repo} -> {log_path}")
     logger.info(f"Model: {cfg.model_name}, batch={cfg.batch_size}, group={cfg.group_size}")
@@ -275,7 +284,7 @@ async def run_training(cfg: Config):
         # Descriptive run name: rl-single-qwen30b-osv5m or rl-multi-qwen30b-osv5m
         model_short = cfg.model_name.split("/")[-1].lower().replace("-instruct", "")
         dataset_short = cfg.hf_repo.split("/")[-1]
-        run_name = f"rl-{cfg.env_type}-{model_short}-{dataset_short}"
+        run_name = f"rl-{cfg.env_type}-{model_short}-{dataset_short}-v5-local"
         wandb.init(
             project=cfg.wandb_project,
             name=run_name,
@@ -309,7 +318,16 @@ async def run_training(cfg: Config):
 
     # Setup training client
     service_client = tinker.ServiceClient(base_url=cfg.base_url)
-    if cfg.load_checkpoint_path:
+    if resume_info:
+        # Resume from checkpoint with optimizer state
+        training_client = await service_client.create_training_client_from_state_async(
+            resume_info["state_path"]
+        )
+        # Load optimizer state
+        await training_client.load_state_with_optimizer_async(resume_info["state_path"])
+        logger.info(f"Resumed from step {resume_info['step']}: {resume_info['state_path']}")
+    elif cfg.load_checkpoint_path:
+        # Start fresh from a checkpoint (weights only, fresh optimizer)
         training_client = await service_client.create_training_client_from_state_async(
             cfg.load_checkpoint_path
         )
@@ -322,7 +340,7 @@ async def run_training(cfg: Config):
     adam = AdamParams(learning_rate=cfg.learning_rate, beta1=0.9, beta2=0.95, eps=1e-8)
 
     # Training loop
-    for step in range(cfg.max_steps):
+    for step in range(start_step, cfg.max_steps):
         t0 = time.time()
 
         # Get sampling client with current weights
@@ -415,8 +433,9 @@ async def run_training(cfg: Config):
                 wandb.log(eval_result_to_dict(eval_result))
 
         if cfg.save_every > 0 and step > 0 and step % cfg.save_every == 0:
-            training_client.save_state(name=f"step_{step:06d}").result()
-            logger.info(f"Saved checkpoint: step_{step:06d}")
+            await checkpoint_utils.save_checkpoint_async(
+                training_client, name=f"step_{step:06d}", log_path=log_path, step=step
+            )
 
     # Final save
     result = training_client.save_state(name="final").result()
